@@ -90,7 +90,7 @@ class CIG_Database {
             `author_id` bigint(20) unsigned DEFAULT NULL,
             `created_at` datetime NOT NULL,
             `updated_at` datetime NOT NULL,
-            `activation_date` datetime DEFAULT NULL,
+            `activated_at` datetime DEFAULT NULL,
             PRIMARY KEY (`id`),
             UNIQUE KEY `invoice_number` (`invoice_number`),
             KEY `old_post_id` (`old_post_id`),
@@ -98,7 +98,7 @@ class CIG_Database {
             KEY `type` (`type`),
             KEY `author_id` (`author_id`),
             KEY `created_at` (`created_at`),
-            KEY `activation_date` (`activation_date`)
+            KEY `activated_at` (`activated_at`)
         ) ENGINE=InnoDB {$charset_collate};";
 
         dbDelta($sql_invoices);
@@ -424,9 +424,9 @@ class CIG_Database {
                 'updated_at' => [
                     'column' => "ADD COLUMN `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER `created_at`",
                 ],
-                'activation_date' => [
-                    'column' => "ADD COLUMN `activation_date` datetime DEFAULT NULL AFTER `updated_at`",
-                    'index' => "ADD KEY `activation_date` (`activation_date`)",
+                'activated_at' => [
+                    'column' => "ADD COLUMN `activated_at` datetime DEFAULT NULL AFTER `updated_at`",
+                    'index' => "ADD KEY `activated_at` (`activated_at`)",
                 ],
             ];
             
