@@ -229,6 +229,9 @@ class CIG_Invoice_Repository extends Abstract_CIG_Repository {
         $table = $this->get_table('invoices');
         $data = $dto->to_array(false);
         $data['updated_at'] = current_time('mysql');
+        
+        // Remove post_id from update data - it's an immutable reference field
+        unset($data['post_id']);
 
         $result = $this->wpdb->update(
             $table,
