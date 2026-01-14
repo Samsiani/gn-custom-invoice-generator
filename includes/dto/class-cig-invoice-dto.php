@@ -39,10 +39,18 @@ class CIG_Invoice_DTO {
     /**
      * Create DTO from array
      *
-     * @param array $data Raw data array
-     * @return CIG_Invoice_DTO
+     * @param array|null $data Raw data array
+     * @return CIG_Invoice_DTO|null
      */
-    public static function from_array(array $data) {
+    public static function from_array($data) {
+        if ($data === null) {
+            return null;
+        }
+        
+        if (!is_array($data)) {
+            return null;
+        }
+        
         $dto = new self();
         
         $dto->id = isset($data['id']) ? (int)$data['id'] : null;
@@ -181,7 +189,7 @@ class CIG_Invoice_DTO {
             $errors[] = 'Invalid invoice status';
         }
 
-        $valid_lifecycle = ['unfinished', 'completed', 'cancelled'];
+        $valid_lifecycle = ['unfinished', 'completed', 'cancelled', 'reserved'];
         if (!in_array($this->lifecycle_status, $valid_lifecycle, true)) {
             $errors[] = 'Invalid lifecycle status';
         }

@@ -26,7 +26,7 @@ class CIG_Invoice_Repository extends Abstract_CIG_Repository {
 
         $cache_key = 'cig_invoice_' . $id;
         $cached = $this->get_cache($cache_key);
-        if ($cached !== false) {
+        if ($cached !== false && is_array($cached)) {
             return CIG_Invoice_DTO::from_array($cached);
         }
 
@@ -58,7 +58,7 @@ class CIG_Invoice_Repository extends Abstract_CIG_Repository {
 
         $cache_key = 'cig_invoice_num_' . md5($invoice_number);
         $cached = $this->get_cache($cache_key);
-        if ($cached !== false) {
+        if ($cached !== false && is_array($cached)) {
             return CIG_Invoice_DTO::from_array($cached);
         }
 
@@ -90,7 +90,7 @@ class CIG_Invoice_Repository extends Abstract_CIG_Repository {
 
         $cache_key = 'cig_invoice_post_' . $post_id;
         $cached = $this->get_cache($cache_key);
-        if ($cached !== false) {
+        if ($cached !== false && is_array($cached)) {
             return CIG_Invoice_DTO::from_array($cached);
         }
 
@@ -146,7 +146,10 @@ class CIG_Invoice_Repository extends Abstract_CIG_Repository {
 
         $invoices = [];
         foreach ($rows as $row) {
-            $invoices[] = CIG_Invoice_DTO::from_array($row);
+            $dto = CIG_Invoice_DTO::from_array($row);
+            if ($dto !== null) {
+                $invoices[] = $dto;
+            }
         }
 
         return $invoices;
