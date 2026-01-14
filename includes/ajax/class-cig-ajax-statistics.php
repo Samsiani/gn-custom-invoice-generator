@@ -34,6 +34,35 @@ class CIG_Ajax_Statistics {
         }
         return [['relation' => 'OR', ['key' => '_cig_invoice_status', 'value' => 'standard', 'compare' => '='], ['key' => '_cig_invoice_status', 'compare' => 'NOT EXISTS']]];
     }
+    
+    /**
+     * Get activation dates for multiple posts efficiently (batch query)
+     *
+     * @param array $post_ids Array of post IDs
+     * @return array Associative array of post_id => activation_date
+     */
+    private function get_activation_dates_batch($post_ids) {
+        if (empty($post_ids)) {
+            return [];
+        }
+        
+        global $wpdb;
+        $post_ids_str = implode(',', array_map('intval', $post_ids));
+        
+        $results = $wpdb->get_results("
+            SELECT post_id, meta_value 
+            FROM {$wpdb->postmeta} 
+            WHERE post_id IN ({$post_ids_str}) 
+            AND meta_key = '_cig_activation_date'
+        ", ARRAY_A);
+        
+        $activation_dates = [];
+        foreach ($results as $row) {
+            $activation_dates[$row['post_id']] = $row['meta_value'];
+        }
+        
+        return $activation_dates;
+    }
 
     public function get_statistics_summary() {
     $this->security->verify_ajax_request('cig_nonce', 'nonce', 'edit_posts');
@@ -50,15 +79,26 @@ class CIG_Ajax_Statistics {
     $query = new WP_Query($args);
     $all_ids = $query->posts;
     
+    // Batch fetch activation dates for all invoices
+    $activation_dates = $this->get_activation_dates_batch($all_ids);
+    
     // Filter by date if provided (using activation_date with fallback to post_date)
     $ids = [];
     if ($date_from && $date_to) {
         $start_ts = strtotime($date_from . ' 00:00:00');
         $end_ts = strtotime($date_to . ' 23:59:59');
         
+        // Batch fetch post dates
+        $post_dates = [];
+        if (!empty($all_ids)) {
+            foreach ($all_ids as $id) {
+                $post_dates[$id] = get_post_field('post_date', $id);
+            }
+        }
+        
         foreach ($all_ids as $id) {
-            $activation_date = get_post_meta($id, '_cig_activation_date', true);
-            $effective_date = $activation_date ?: get_post_field('post_date', $id);
+            $activation_date = isset($activation_dates[$id]) ? $activation_dates[$id] : null;
+            $effective_date = $activation_date ?: ($post_dates[$id] ?? '');
             $ts = strtotime($effective_date);
             
             if ($ts >= $start_ts && $ts <= $end_ts) {
@@ -138,15 +178,26 @@ class CIG_Ajax_Statistics {
         $query = new WP_Query($args);
         $all_ids = $query->posts;
         
+        // Batch fetch activation dates for all invoices
+        $activation_dates = $this->get_activation_dates_batch($all_ids);
+        
         // Filter by date if provided (using activation_date with fallback to post_date)
         $ids = [];
         if ($date_from && $date_to) {
             $start_ts = strtotime($date_from . ' 00:00:00');
             $end_ts = strtotime($date_to . ' 23:59:59');
             
+            // Batch fetch post dates
+            $post_dates = [];
+            if (!empty($all_ids)) {
+                foreach ($all_ids as $id) {
+                    $post_dates[$id] = get_post_field('post_date', $id);
+                }
+            }
+            
             foreach ($all_ids as $id) {
-                $activation_date = get_post_meta($id, '_cig_activation_date', true);
-                $effective_date = $activation_date ?: get_post_field('post_date', $id);
+                $activation_date = isset($activation_dates[$id]) ? $activation_dates[$id] : null;
+                $effective_date = $activation_date ?: ($post_dates[$id] ?? '');
                 $ts = strtotime($effective_date);
                 
                 if ($ts >= $start_ts && $ts <= $end_ts) {
@@ -171,7 +222,7 @@ class CIG_Ajax_Statistics {
                 if($s==='sold') $users[$uid]['total_sold']+=$q; elseif($s==='reserved') $users[$uid]['total_reserved']+=$q; elseif($s==='canceled') $users[$uid]['total_canceled']+=$q;
             }
             // Use activation_date with fallback to post_date
-            $activation_date = get_post_meta($id, '_cig_activation_date', true);
+            $activation_date = isset($activation_dates[$id]) ? $activation_dates[$id] : null;
             $d = $activation_date ?: get_post_field('post_date', $id);
             if ($d > $users[$uid]['last_invoice_date']) $users[$uid]['last_invoice_date'] = $d;
         }
@@ -220,6 +271,10 @@ class CIG_Ajax_Statistics {
     $query = new WP_Query($args);
     $posts = $query->posts;
     
+    // Batch fetch activation dates
+    $post_ids = array_map(function($p) { return $p->ID; }, $posts);
+    $activation_dates = $this->get_activation_dates_batch($post_ids);
+    
     // Filter by date if provided (using activation_date with fallback to post_date)
     if ($date_from && $date_to) {
         $start_ts = strtotime($date_from . ' 00:00:00');
@@ -227,7 +282,7 @@ class CIG_Ajax_Statistics {
         
         $filtered_posts = [];
         foreach ($posts as $p) {
-            $activation_date = get_post_meta($p->ID, '_cig_activation_date', true);
+            $activation_date = isset($activation_dates[$p->ID]) ? $activation_dates[$p->ID] : null;
             $effective_date = $activation_date ?: $p->post_date;
             $ts = strtotime($effective_date);
             
@@ -295,8 +350,8 @@ class CIG_Ajax_Statistics {
         $tot=(float)get_post_meta($id,'_cig_invoice_total',true);
         $pd=(float)get_post_meta($id,'_cig_payment_paid_amount',true);
         
-        // Use activation_date with fallback
-        $activation_date = get_post_meta($id, '_cig_activation_date', true);
+        // Use activation_date with fallback (already batch-fetched)
+        $activation_date = isset($activation_dates[$id]) ? $activation_dates[$id] : null;
         $display_date = $activation_date ?: get_the_date('Y-m-d H:i', $p);
         
         $rows[]=[
@@ -334,15 +389,26 @@ class CIG_Ajax_Statistics {
         $query = new WP_Query($args);
         $all_ids = $query->posts;
         
+        // Batch fetch activation dates
+        $activation_dates = $this->get_activation_dates_batch($all_ids);
+        
         // Filter by date if provided (using activation_date with fallback to post_date)
         $ids = [];
         if ($date_from && $date_to) {
             $start_ts = strtotime($date_from . ' 00:00:00');
             $end_ts = strtotime($date_to . ' 23:59:59');
             
+            // Batch fetch post dates
+            $post_dates = [];
+            if (!empty($all_ids)) {
+                foreach ($all_ids as $id) {
+                    $post_dates[$id] = get_post_field('post_date', $id);
+                }
+            }
+            
             foreach ($all_ids as $id) {
-                $activation_date = get_post_meta($id, '_cig_activation_date', true);
-                $effective_date = $activation_date ?: get_post_field('post_date', $id);
+                $activation_date = isset($activation_dates[$id]) ? $activation_dates[$id] : null;
+                $effective_date = $activation_date ?: ($post_dates[$id] ?? '');
                 $ts = strtotime($effective_date);
                 
                 if ($ts >= $start_ts && $ts <= $end_ts) {
@@ -358,8 +424,8 @@ class CIG_Ajax_Statistics {
             foreach(get_post_meta($id,'_cig_items',true)?:[] as $it) {
                 if(strtolower($it['status']??'sold')!==$st) continue;
                 
-                // Use activation_date with fallback
-                $activation_date = get_post_meta($id, '_cig_activation_date', true);
+                // Use activation_date with fallback (already batch-fetched)
+                $activation_date = isset($activation_dates[$id]) ? $activation_dates[$id] : null;
                 $display_date = $activation_date ?: get_post_field('post_date', $id);
                 
                 $rows[]=['name'=>$it['name']??'', 'sku'=>$it['sku']??'', 'image'=>$it['image']??'', 'qty'=>floatval($it['qty']), 'invoice_id'=>$id, 'invoice_number'=>get_post_meta($id,'_cig_invoice_number',true), 'author_name'=>get_the_author_meta('display_name',get_post_field('post_author',$id)), 'date'=>$display_date, 'view_url'=>get_permalink($id), 'edit_url'=>add_query_arg('edit','1',get_permalink($id))];

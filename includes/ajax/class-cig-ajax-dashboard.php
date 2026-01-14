@@ -26,6 +26,35 @@ class CIG_Ajax_Dashboard {
         if ($status === 'fictive') return [['key' => '_cig_invoice_status', 'value' => 'fictive', 'compare' => '=']];
         return [['relation' => 'OR', ['key' => '_cig_invoice_status', 'value' => 'standard', 'compare' => '='], ['key' => '_cig_invoice_status', 'compare' => 'NOT EXISTS']]];
     }
+    
+    /**
+     * Get activation dates for multiple posts efficiently (batch query)
+     *
+     * @param array $post_ids Array of post IDs
+     * @return array Associative array of post_id => activation_date
+     */
+    private function get_activation_dates_batch($post_ids) {
+        if (empty($post_ids)) {
+            return [];
+        }
+        
+        global $wpdb;
+        $post_ids_str = implode(',', array_map('intval', $post_ids));
+        
+        $results = $wpdb->get_results("
+            SELECT post_id, meta_value 
+            FROM {$wpdb->postmeta} 
+            WHERE post_id IN ({$post_ids_str}) 
+            AND meta_key = '_cig_activation_date'
+        ", ARRAY_A);
+        
+        $activation_dates = [];
+        foreach ($results as $row) {
+            $activation_dates[$row['post_id']] = $row['meta_value'];
+        }
+        
+        return $activation_dates;
+    }
 
     /**
      * Standard Consultant Dashboard Logic (Preserved)
@@ -260,10 +289,13 @@ class CIG_Ajax_Dashboard {
 
         $query = new WP_Query($args);
         
+        // Batch fetch activation dates for all posts
+        $activation_dates = $this->get_activation_dates_batch($query->posts);
+        
         // Post-process for date filtering with activation_date fallback and sorting
         $invoice_data = [];
         foreach ($query->posts as $id) {
-            $activation_date = get_post_meta($id, '_cig_activation_date', true);
+            $activation_date = isset($activation_dates[$id]) ? $activation_dates[$id] : null;
             $effective_date = $activation_date ?: get_post_field('post_date', $id);
             
             // Re-check date filter using effective date (activation_date with fallback)
