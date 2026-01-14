@@ -197,7 +197,7 @@ class CIG_Ajax_Dashboard {
                         'product_name' => $it['name'] ?? 'Unknown',
                         'product_sku' => $it['sku'] ?? '',
                         'quantity' => floatval($it['qty'] ?? 0),
-                        'expires_date' => gmdate('Y-m-d H:i:s', $exp + (get_option('gmt_offset') * HOUR_IN_SECONDS)),
+                        'expires_date' => date('Y-m-d H:i:s', $exp),
                         'days_left' => ceil(($exp - $now) / DAY_IN_SECONDS),
                         'edit_url' => add_query_arg('edit', '1', get_permalink($id))
                     ];
@@ -382,7 +382,7 @@ class CIG_Ajax_Dashboard {
             $invoices[] = [
                 'id'          => $id,
                 'number'      => get_post_meta($id, '_cig_invoice_number', true),
-                'date'        => gmdate('Y-m-d', strtotime($date) + (get_option('gmt_offset') * HOUR_IN_SECONDS)),
+                'date'        => date('Y-m-d', strtotime($date)),
                 'total'       => number_format((float)$total, 2) . ' ₾',
                 'client_name' => $buyer_name,
                 'client_tax'  => $buyer_tax,

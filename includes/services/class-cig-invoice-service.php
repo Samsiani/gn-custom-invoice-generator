@@ -222,12 +222,23 @@ class CIG_Invoice_Service {
                 if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $payment_date)) {
                     // Extract just the time portion from current site time (already in site timezone)
                     $current_datetime = current_time('mysql');
-                    // Parse the time using WordPress timezone-aware method
-                    $time_part = substr($current_datetime, 11); // Extract 'HH:mm:ss' from 'YYYY-MM-DD HH:mm:ss'
+                    // Parse the datetime to extract time components safely
+                    $parsed = date_parse($current_datetime);
+                    $time_part = sprintf('%02d:%02d:%02d', $parsed['hour'], $parsed['minute'], $parsed['second']);
                     $payment_realization_datetime = $payment_date . ' ' . $time_part;
-                } else {
-                    // If it's already a datetime or something else, use it as-is
+                } elseif (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $payment_date)) {
+                    // If it's already a valid datetime format (YYYY-MM-DD HH:mm:ss), use it as-is
                     $payment_realization_datetime = $payment_date;
+                } else {
+                    // Invalid format - validate and convert via strtotime
+                    $timestamp = strtotime($payment_date);
+                    if ($timestamp !== false) {
+                        // Convert to proper MySQL datetime format using site timezone
+                        $payment_realization_datetime = date('Y-m-d H:i:s', $timestamp);
+                    } else {
+                        // If all else fails, use current time as fallback
+                        $payment_realization_datetime = current_time('mysql');
+                    }
                 }
             }
             

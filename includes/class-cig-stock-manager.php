@@ -105,9 +105,11 @@ class CIG_Stock_Manager {
         if ($quantity > 0) {
             $expiry_date = '';
             if ($reservation_days > 0 && !empty($invoice_date)) {
-                // Use WordPress timezone-aware date calculation
+                // Calculate expiry date using WordPress timezone-aware functions
+                // strtotime respects the current timezone when using relative formats
                 $expiry_timestamp = strtotime($invoice_date . ' +' . intval($reservation_days) . ' days');
-                $expiry_date = gmdate('Y-m-d H:i:s', $expiry_timestamp + (get_option('gmt_offset') * HOUR_IN_SECONDS));
+                // Format the expiry date in site timezone
+                $expiry_date = date('Y-m-d H:i:s', $expiry_timestamp);
             }
 
             $reserved_meta[$invoice_id] = [
