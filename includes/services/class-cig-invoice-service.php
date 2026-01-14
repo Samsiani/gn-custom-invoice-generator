@@ -333,11 +333,31 @@ class CIG_Invoice_Service {
      * @return string Invoice number
      */
     public function generate_invoice_number() {
-        global $wpdb;
+        if (!$this->invoice_repo) {
+            // Fallback if repository not available
+            $last_num = get_option('cig_last_invoice_number', CIG_INVOICE_NUMBER_BASE);
+            $new_num = $last_num + 1;
+            update_option('cig_last_invoice_number', $new_num);
+            return CIG_INVOICE_NUMBER_PREFIX . $new_num;
+        }
         
-        // Get the highest invoice number from custom table
+        // Use repository to get max number
+        global $wpdb;
         $table = $wpdb->prefix . 'cig_invoices';
-        $max_number = $wpdb->get_var("SELECT MAX(CAST(SUBSTRING(invoice_number, 2) AS UNSIGNED)) FROM `{$table}`");
+        
+        // Check if table exists
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") !== $table) {
+            // Fallback to option
+            $last_num = get_option('cig_last_invoice_number', CIG_INVOICE_NUMBER_BASE);
+            $new_num = $last_num + 1;
+            update_option('cig_last_invoice_number', $new_num);
+            return CIG_INVOICE_NUMBER_PREFIX . $new_num;
+        }
+        
+        $max_number = $wpdb->get_var($wpdb->prepare(
+            "SELECT MAX(CAST(SUBSTRING(invoice_number, %d) AS UNSIGNED)) FROM `{$table}`",
+            strlen(CIG_INVOICE_NUMBER_PREFIX) + 1
+        ));
         
         if (!$max_number) {
             $max_number = CIG_INVOICE_NUMBER_BASE;
@@ -356,8 +376,9 @@ class CIG_Invoice_Service {
         $subtotal = 0;
         
         foreach ($items as $item) {
-            $qty = (float)($item['qty'] ?? $item['quantity'] ?? 1);
-            $price = (float)($item['price'] ?? $item['unit_price'] ?? 0);
+            // Support both field name formats for backward compatibility
+            $qty = (float)($item['quantity'] ?? $item['qty'] ?? 1);
+            $price = (float)($item['unit_price'] ?? $item['price'] ?? 0);
             $subtotal += $qty * $price;
         }
 

@@ -330,7 +330,7 @@ class CIG_Invoice_Repository extends Abstract_CIG_Repository {
             'meta_query' => [
                 [
                     'key' => '_cig_invoice_number',
-                    'value' => $invoice_number,
+                    'value' => sanitize_text_field($invoice_number),
                     'compare' => '='
                 ]
             ],

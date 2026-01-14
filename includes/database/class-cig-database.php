@@ -99,8 +99,10 @@ class CIG_Database {
             KEY `created_at` (`created_at`)
         ) ENGINE=InnoDB {$charset_collate};";
 
-        $result = dbDelta($sql_invoices);
-        if (empty($result)) {
+        dbDelta($sql_invoices);
+        
+        // Verify table was created
+        if ($this->wpdb->last_error) {
             $created = false;
         }
 
@@ -125,8 +127,9 @@ class CIG_Database {
             KEY `sort_order` (`sort_order`)
         ) ENGINE=InnoDB {$charset_collate};";
 
-        $result = dbDelta($sql_items);
-        if (empty($result)) {
+        dbDelta($sql_items);
+        
+        if ($this->wpdb->last_error) {
             $created = false;
         }
 
@@ -148,8 +151,9 @@ class CIG_Database {
             KEY `payment_method` (`payment_method`)
         ) ENGINE=InnoDB {$charset_collate};";
 
-        $result = dbDelta($sql_payments);
-        if (empty($result)) {
+        dbDelta($sql_payments);
+        
+        if ($this->wpdb->last_error) {
             $created = false;
         }
 
