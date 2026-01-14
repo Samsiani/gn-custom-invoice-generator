@@ -35,6 +35,7 @@ class CIG_Invoice_DTO {
     public $author_id;  // Changed from created_by to match database
     public $created_at;
     public $updated_at;
+    public $activation_date;
 
     /**
      * Create DTO from array
@@ -74,6 +75,7 @@ class CIG_Invoice_DTO {
         $dto->author_id = isset($data['author_id']) ? (int)$data['author_id'] : (isset($data['created_by']) ? (int)$data['created_by'] : null);
         $dto->created_at = $data['created_at'] ?? current_time('mysql');
         $dto->updated_at = $data['updated_at'] ?? current_time('mysql');
+        $dto->activation_date = $data['activation_date'] ?? null;
         
         return $dto;
     }
@@ -112,6 +114,7 @@ class CIG_Invoice_DTO {
         $dto->author_id = (int)$post->post_author ?: null;
         $dto->created_at = $post->post_date;
         $dto->updated_at = $post->post_modified;
+        $dto->activation_date = get_post_meta($post_id, '_cig_activation_date', true) ?: null;
 
         return $dto;
     }
@@ -145,6 +148,7 @@ class CIG_Invoice_DTO {
             'author_id' => $this->author_id,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
+            'activation_date' => $this->activation_date,
         ];
 
         if ($include_id && $this->id) {

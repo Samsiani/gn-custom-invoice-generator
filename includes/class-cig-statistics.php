@@ -162,12 +162,31 @@ class CIG_Statistics {
             'fields'         => 'ids'
         ];
 
+        // Use activation_date with fallback to post_date for filtering
         if ($date_from && $date_to) {
+            // We need to use meta_query to check activation_date, with fallback to post_date
+            // For posts with activation_date, use it; otherwise use post_date
             $args['date_query'] = [[
                 'after'     => $date_from . ' 00:00:00',
                 'before'    => $date_to   . ' 23:59:59',
-                'inclusive' => true
+                'inclusive' => true,
+                'column'    => 'post_date' // This will be used for posts without activation_date
             ]];
+            
+            // Add meta query to also check activation_date
+            $args['meta_query'] = [
+                'relation' => 'OR',
+                [
+                    'key'     => '_cig_activation_date',
+                    'value'   => [$date_from . ' 00:00:00', $date_to . ' 23:59:59'],
+                    'compare' => 'BETWEEN',
+                    'type'    => 'DATETIME'
+                ],
+                [
+                    'key'     => '_cig_activation_date',
+                    'compare' => 'NOT EXISTS'
+                ]
+            ];
         }
 
         // Status Filter Logic
@@ -187,7 +206,16 @@ class CIG_Statistics {
         }
 
         if (!empty($meta_query)) {
-            $args['meta_query'] = $meta_query;
+            if (isset($args['meta_query'])) {
+                // Merge with existing meta_query
+                $args['meta_query'] = [
+                    'relation' => 'AND',
+                    $args['meta_query'],
+                    $meta_query
+                ];
+            } else {
+                $args['meta_query'] = $meta_query;
+            }
         }
 
         $query = new WP_Query($args);
@@ -233,7 +261,10 @@ class CIG_Statistics {
                 }
             }
 
-            $invoice_date = get_post_field('post_date', $invoice_id);
+            // Use activation_date if available, otherwise fall back to post_date
+            $activation_date = get_post_meta($invoice_id, '_cig_activation_date', true);
+            $invoice_date = $activation_date ?: get_post_field('post_date', $invoice_id);
+            
             if (empty($users_data[$author_id]['Last Invoice Date']) || $invoice_date > $users_data[$author_id]['Last Invoice Date']) {
                 $users_data[$author_id]['Last Invoice Date'] = date('Y-m-d H:i:s', strtotime($invoice_date));
             }
