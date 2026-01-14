@@ -233,8 +233,9 @@ class CIG_Invoice_Service {
                     // Invalid format - validate and convert via strtotime
                     $timestamp = strtotime($payment_date);
                     if ($timestamp !== false) {
-                        // Convert to proper MySQL datetime format using site timezone
-                        $payment_realization_datetime = date('Y-m-d H:i:s', $timestamp);
+                        // Convert to proper MySQL datetime format using WordPress timezone
+                        // wp_date() formats according to site timezone
+                        $payment_realization_datetime = wp_date('Y-m-d H:i:s', $timestamp);
                     } else {
                         // If all else fails, use current time as fallback
                         $payment_realization_datetime = current_time('mysql');

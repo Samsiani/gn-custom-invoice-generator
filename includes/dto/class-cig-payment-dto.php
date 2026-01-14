@@ -43,7 +43,7 @@ class CIG_Payment_DTO {
             $dto->date = current_time('Y-m-d');
         } else {
             // Use WordPress timezone-aware formatting
-            $dto->date = date('Y-m-d', $timestamp);
+            $dto->date = wp_date('Y-m-d', $timestamp);
         }
         $dto->payment_method = $data['payment_method'] ?? $data['method'] ?? '';
         $dto->amount = isset($data['amount']) ? (float)$data['amount'] : 0.00;

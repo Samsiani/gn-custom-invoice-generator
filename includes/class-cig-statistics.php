@@ -275,7 +275,7 @@ class CIG_Statistics {
             $invoice_date = $activation_date ?: get_post_field('post_date', $invoice_id);
             
             if (empty($users_data[$author_id]['Last Invoice Date']) || $invoice_date > $users_data[$author_id]['Last Invoice Date']) {
-                $users_data[$author_id]['Last Invoice Date'] = date('Y-m-d H:i:s', strtotime($invoice_date));
+                $users_data[$author_id]['Last Invoice Date'] = wp_date('Y-m-d H:i:s', strtotime($invoice_date));
             }
         }
 
@@ -283,7 +283,7 @@ class CIG_Statistics {
         $filename_prefix = ($status === 'fictive') ? 'fictive-invoices-' : 'active-invoices-';
         if ($status === 'all') $filename_prefix = 'all-invoices-';
         
-        $filename = $filename_prefix . date('Y-m-d-H-i-s') . '.csv';
+        $filename = $filename_prefix . current_time('Y-m-d-H-i-s') . '.csv';
 
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="' . $filename . '"');
