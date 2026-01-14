@@ -249,6 +249,12 @@ define('WP_DEBUG_DISPLAY', false);
 
 <script>
 jQuery(document).ready(function($) {
+    // Helper function to safely escape and format JSON
+    function escapeAndFormatJson(data) {
+        var jsonStr = JSON.stringify(data, null, 2);
+        return $('<div/>').text(jsonStr).html();
+    }
+    
     // Start full migration
     $('.cig-migrate-btn').on('click', function() {
         if (!confirm('<?php echo esc_js(__('Start migration process?', 'cig')); ?>')) {
@@ -312,9 +318,8 @@ jQuery(document).ready(function($) {
                 $('.cig-log-content').append('<div class="log-info"><strong>Post ID:</strong> ' + response.data.post_id + '</div>\n');
                 
                 if (response.data.dto_data) {
-                    // Escape and format JSON data before displaying
-                    var jsonStr = JSON.stringify(response.data.dto_data, null, 2);
-                    var escapedJson = $('<div/>').text(jsonStr).html();
+                    // Use helper function for JSON escaping
+                    var escapedJson = escapeAndFormatJson(response.data.dto_data);
                     $('.cig-log-content').append('<details style="margin-top: 10px;"><summary style="cursor: pointer;"><strong>Invoice Data</strong></summary><pre style="background: #f5f5f5; padding: 10px; overflow-x: auto; font-size: 11px;">' + escapedJson + '</pre></details>\n');
                 }
             } else {
@@ -332,9 +337,8 @@ jQuery(document).ready(function($) {
                 }
                 
                 if (response.data.dto_data) {
-                    // Escape and format JSON data before displaying
-                    var jsonStr = JSON.stringify(response.data.dto_data, null, 2);
-                    var escapedJson = $('<div/>').text(jsonStr).html();
+                    // Use helper function for JSON escaping
+                    var escapedJson = escapeAndFormatJson(response.data.dto_data);
                     $('.cig-log-content').append('<details style="margin-top: 10px;"><summary style="cursor: pointer;"><strong>Invoice Data (with issues)</strong></summary><pre style="background: #fff3cd; padding: 10px; overflow-x: auto; font-size: 11px;">' + escapedJson + '</pre></details>\n');
                 }
                 
@@ -387,7 +391,8 @@ jQuery(document).ready(function($) {
                                 cssClass = 'log-warning';
                             }
                             
-                            $('.cig-log-content').append('<div class="' + cssClass + '">' + entry + '</div>');
+                            // Safely append log entry with HTML escaping
+                            $('.cig-log-content').append($('<div/>').addClass(cssClass).text(entry));
                         });
                         
                         $('.cig-log-content').append('</div>');
