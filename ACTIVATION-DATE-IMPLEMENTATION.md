@@ -1,21 +1,29 @@
-# Activation Date Implementation
+# Activation Date Implementation - Updated Approach
 
 ## Overview
 
-This document describes the implementation of the "Activation Date" logic for accurate financial reporting in the Custom Invoice Generator system. The system now tracks when an invoice transitions from "Fictive" (draft) status to "Standard" (active) status, ensuring that statistics and reports reflect actual sales realization dates rather than creation dates.
+This document describes the implementation of the **Creation Date Update Logic** for accurate financial reporting in the Custom Invoice Generator system. The system now **updates the actual creation date** (`created_at` and `post_date`) when an invoice transitions from "Fictive" (draft) status to "Standard" (active) status, ensuring that all native WordPress filters and statistical queries automatically align with the actual date of sale.
 
 ## Problem Statement
 
-Previously, the system used the invoice creation date (`created_at`) for all statistical reporting. This was misleading because:
+The previous implementation using a separate `activation_date` field did not fully resolve the discrepancy in reporting:
 
-1. Many invoices are created as "Fictive" drafts long before they are actually finalized
-2. Financial reports showed revenue on the draft creation date, not the actual sale date
-3. Monthly performance metrics were inaccurate due to this timing mismatch
-4. Accountants needed to see invoices sorted by realization date, not draft creation date
+1. Statistical filters and the Admin Dashboard still frequently default to the original `post_date` (Creation Date)
+2. Fictive invoices appeared in the wrong financial period after being finalized
+3. Complex COALESCE logic was needed in SQL queries to handle both dates
+4. Native WordPress queries couldn't easily use the activation date
 
-## Solution
+## New Solution
 
-The system now captures an "Activation Date" (`activation_date`) that represents when an invoice becomes active (transitions to "Standard" status). This date is used as the primary filter for all statistical queries, with automatic fallback to `created_at` for legacy data.
+**Instead of maintaining a separate activation_date field, the system now updates the primary timestamp** of the invoice when its status changes:
+
+1. When an invoice transitions from Fictive to Active (Sold/Reserved), the system updates:
+   - `created_at` in the custom table
+   - `post_date` in the WordPress database
+   
+2. The `activation_date` field is now used as a **flag** to track whether an invoice has been activated (preventing multiple date updates)
+
+This ensures that all native WordPress filters, statistical queries, and accountant views automatically use the correct date without complex logic.
 
 ## Implementation Details
 
@@ -59,40 +67,62 @@ Updated methods:
 #### Invoice Creation (`create_invoice`)
 
 ```php
-// Do NOT set activation_date for invoices created directly as Standard
-// activation_date should ONLY be set when a Fictive invoice transitions to Standard
-// Invoices "born" active should be categorized by their created_at date
+// Track if invoice was created as Active (standard/proforma) from the beginning
+// We use activation_date as a flag: NULL means either "created as Active" or "not yet activated"
+// This distinction is important for the update logic
 $activation_date = null;
 ```
 
 **Behavior:**
-- If an invoice is created with payment (Standard) → `activation_date` remains NULL (uses `created_at` for statistics)
-- If an invoice is created without payment (Fictive) → `activation_date` remains NULL
-- **Key Point:** Direct creation does NOT set activation_date, ensuring invoices are categorized by their creation date
+- All invoices start with `activation_date` = NULL (whether created as Fictive or Active)
+- Invoices created directly with payment (Active) retain their original `created_at` and `post_date`
+- Invoices created without payment (Fictive) also retain their creation date until activated
 
 #### Invoice Update (`update_invoice`)
 
 ```php
-// Handle activation_date logic
-$activation_date = $existing->activation_date; // Preserve existing by default
+// Handle creation date update logic
+$activation_date = $existing->activation_date; // Track if already activated
+$created_at = $existing->created_at; // Default: preserve creation date
+$update_post_date = false; // Flag to update WordPress post_date
 
-// If transitioning from fictive to standard, set activation_date
+// CORE LOGIC: Update creation date when transitioning from Fictive to Active (Sold/Reserved)
+// Only if invoice hasn't been activated before (activation_date is NULL)
 if ($existing->type === 'fictive' && $invoice_status === 'standard' && empty($existing->activation_date)) {
-    $activation_date = current_time('mysql');
+    $current_datetime = current_time('mysql');
+    $created_at = $current_datetime; // Update creation date in custom table
+    $activation_date = $current_datetime; // Mark as activated (prevents future updates)
+    $update_post_date = true; // Also update WordPress post_date
 }
 
-// If reverting from standard to fictive, clear activation_date
+// If reverting from standard to fictive, clear activation flag
+// Note: We do NOT restore the original creation date as it may have been intentionally changed
 if ($existing->type === 'standard' && $invoice_status === 'fictive') {
     $activation_date = null;
+}
+
+// Later in the code:
+// Update WordPress post_date if invoice was activated
+if ($update_post_date && $existing->old_post_id) {
+    wp_update_post([
+        'ID' => $existing->old_post_id,
+        'post_date' => $created_at,
+        'post_date_gmt' => get_gmt_from_date($created_at),
+        'post_modified' => current_time('mysql'),
+        'post_modified_gmt' => current_time('mysql', true),
+    ]);
 }
 ```
 
 **Behavior:**
-- **Preservation:** Existing `activation_date` is preserved on subsequent edits
-- **Activation:** When Fictive → Standard transition occurs AND activation_date is NULL, set `activation_date` to current time
-- **Reversion:** When Standard → Fictive transition occurs, clear `activation_date`
-- **Idempotency:** Multiple saves of an active invoice don't change its `activation_date`
-- **Direct Creation:** Invoices created directly as Standard will NOT have activation_date set (it remains NULL)
+- **Preservation:** Existing dates are preserved on subsequent edits
+- **Activation:** When Fictive → Standard transition occurs AND activation_date is NULL:
+  - Updates `created_at` in custom table to current datetime
+  - Updates `post_date` in WordPress to current datetime
+  - Sets `activation_date` to current datetime (as a flag)
+- **Reversion:** When Standard → Fictive transition occurs, clears `activation_date` flag
+- **Idempotency:** Multiple saves of an activated invoice don't change its dates (activation_date is not NULL)
+- **Direct Creation:** Invoices created directly as Active keep their original creation date (activation_date stays NULL)
 
 #### Backward Compatibility (Postmeta)
 
@@ -113,112 +143,32 @@ if (!empty($activation_date)) {
 - Clears activation_date when status becomes Fictive
 - Does NOT set activation_date for invoices created directly as Standard
 
-### 4. Repository Layer Changes
+### 4. Repository Layer Changes (No Changes Required)
 
 **File:** `includes/repositories/abstract-cig-repository.php`
 
-#### Date Range Filtering with Fallback
+The existing COALESCE-based date filtering continues to work as designed. However, with the new approach:
 
-```php
-// Handle date range filtering with activation_date fallback to created_at
-if (isset($filters['date_from']) || isset($filters['date_to'])) {
-    $date_conditions = [];
-    
-    if (isset($filters['date_from'])) {
-        $date_conditions[] = "COALESCE(`activation_date`, `created_at`) >= %s";
-        $values[] = $filters['date_from'];
-    }
-    
-    if (isset($filters['date_to'])) {
-        $date_conditions[] = "COALESCE(`activation_date`, `created_at`) <= %s";
-        $values[] = $filters['date_to'];
-    }
-    
-    if (!empty($date_conditions)) {
-        $where[] = '(' . implode(' AND ', $date_conditions) . ')';
-    }
-}
-```
+- **Transitioned invoices:** Use their updated `created_at` directly (no need for COALESCE)
+- **Direct creation invoices:** Use their original `created_at` directly (no need for COALESCE)
+- **Legacy invoices:** The COALESCE fallback still provides backward compatibility
 
-**Key Points:**
-- Uses `COALESCE(activation_date, created_at)` for SQL queries
-- Ensures legacy invoices (without activation_date) fall back to created_at
-- Maintains backward compatibility with existing data
+The system naturally handles all cases because we're updating the primary timestamp rather than maintaining a separate field.
 
-#### Date-Based Ordering
-
-```php
-// Use activation_date with fallback to created_at for default ordering
-if ($order_by === 'created_at' || $order_by === 'activation_date') {
-    return "ORDER BY COALESCE(`activation_date`, `created_at`) {$order}";
-}
-```
-
-### 5. Statistics Engine Updates
-
-**File:** `includes/class-cig-statistics.php`
-
-#### Export Filtering
-
-Updated `generate_excel_export()` to use activation_date:
-
-```php
-// Use activation_date with fallback to post_date
-$activation_date = get_post_meta($invoice_id, '_cig_activation_date', true);
-$invoice_date = $activation_date ?: get_post_field('post_date', $invoice_id);
-```
-
-#### Date Query with Activation Date
-
-```php
-$args['meta_query'] = [
-    'relation' => 'OR',
-    [
-        'key'     => '_cig_activation_date',
-        'value'   => [$date_from . ' 00:00:00', $date_to . ' 23:59:59'],
-        'compare' => 'BETWEEN',
-        'type'    => 'DATETIME'
-    ],
-    [
-        'relation' => 'AND',
-        ['key' => '_cig_activation_date', 'compare' => 'NOT EXISTS'],
-    ]
-];
-
-$args['date_query'] = [['after' => $date_from.' 00:00:00', 'before' => $date_to.' 23:59:59', 'inclusive' => true]];
-```
-
-### 6. AJAX Handler Updates
+### 5. Statistics and Reporting
 
 **Files:** 
+- `includes/class-cig-statistics.php`
 - `includes/ajax/class-cig-ajax-statistics.php`
 - `includes/ajax/class-cig-ajax-dashboard.php`
 
-#### Statistics Summary
+**Key Benefit:** All native WordPress queries using `post_date` now automatically reflect the correct activation date for transitioned invoices. No special handling is required in most queries because the primary timestamp has been updated.
 
-All date-based queries now use activation_date with fallback:
-
-```php
-// Use activation_date with fallback to post_date
-$activation_date = get_post_meta($id, '_cig_activation_date', true);
-$d = $activation_date ?: get_post_field('post_date', $id);
-```
-
-#### Accountant Dashboard Sorting
-
-Updated to sort by activation_date (descending):
-
-```php
-'orderby'        => 'meta_value',
-'meta_key'       => '_cig_activation_date',
-'order'          => 'DESC',
-```
-
-This ensures accountants see the most recently finalized transactions at the top, regardless of when the initial draft was created.
+Existing activation_date handling (COALESCE logic) remains for backward compatibility but is no longer strictly necessary for new invoices.
 
 ## Usage Examples
 
-### Example 1: Creating an Invoice with Payment
+### Example 1: Creating an Invoice with Payment (Direct Active)
 
 ```php
 $data = [
@@ -229,8 +179,11 @@ $data = [
 ];
 
 $invoice_service->create_invoice($data);
-// Result: activation_date = NULL (invoice created directly as Standard)
-// Statistics will use created_at for this invoice
+// Result: 
+// - created_at = 2024-01-10
+// - post_date = 2024-01-10
+// - activation_date = NULL (not set for direct creation)
+// - Statistics will use created_at/post_date = 2024-01-10 ✅
 ```
 
 ### Example 2: Creating a Fictive Invoice
@@ -244,60 +197,82 @@ $data = [
 ];
 
 $invoice_service->create_invoice($data);
-// Result: activation_date = NULL (remains NULL)
+// Result:
+// - created_at = 2024-01-10 (draft creation date)
+// - post_date = 2024-01-10
+// - activation_date = NULL
 ```
 
-### Example 3: Converting Fictive to Standard
+### Example 3: Converting Fictive to Standard (THE KEY CHANGE)
 
 ```php
-// Day 1: Create fictive invoice
+// Day 1 (Jan 10): Create fictive invoice
 $invoice_id = $invoice_service->create_invoice($fictive_data);
+// - created_at = 2024-01-10
+// - post_date = 2024-01-10
+// - activation_date = NULL
 
-// Day 5: Add payment and update (fictive → standard)
+// Day 5 (Jan 14): Add payment and update (fictive → standard)
 $data_with_payment = [..., 'payment' => ['history' => [['amount' => 100]]]];
 $invoice_service->update_invoice($invoice_id, $data_with_payment);
-// Result: activation_date = current_time() on Day 5
+// Result:
+// - created_at = 2024-01-14 ✅ UPDATED!
+// - post_date = 2024-01-14 ✅ UPDATED!
+// - activation_date = 2024-01-14 (flag to prevent future updates)
+// - Statistics will use created_at/post_date = 2024-01-14 ✅
 ```
 
-### Example 4: Reverting Standard to Fictive
+### Example 4: Subsequent Edit (No Date Change)
 
 ```php
-// Invoice was active with activation_date = '2024-01-15'
+// Invoice was activated on Jan 14, now editing on Jan 20
+$invoice_service->update_invoice($invoice_id, $updated_data);
+// Result:
+// - created_at = 2024-01-14 (unchanged, activation_date is set)
+// - post_date = 2024-01-14 (unchanged)
+// - activation_date = 2024-01-14 (unchanged)
+// - Statistics still use 2024-01-14 ✅
+```
+
+### Example 5: Reverting Standard to Fictive
+
+```php
+// Invoice was active with dates = 2024-01-14
 $data_no_payment = [..., 'payment' => ['history' => []]];
 $invoice_service->update_invoice($invoice_id, $data_no_payment);
-// Result: activation_date = NULL (cleared)
+// Result:
+// - created_at = 2024-01-14 (unchanged, date stays)
+// - post_date = 2024-01-14 (unchanged)
+// - activation_date = NULL (cleared, allowing future re-activation)
 ```
 
 ## Impact on Reporting
 
-### Scenario 1: Invoice Created as Fictive, Then Activated
+### Scenario: Invoice Created as Fictive, Then Activated
 
-**Before Implementation:**
+**Before This Change (Using activation_date field):**
 ```
 Invoice INV-001:
 - Created: 2024-01-10 (fictive draft)
-- Payment Added: 2024-01-15 (became active)
-- Reported Revenue Date: 2024-01-10 ❌ (incorrect - used creation date)
+- Payment Added: 2024-01-14 (became active)
+- created_at: 2024-01-10
+- post_date: 2024-01-10
+- activation_date: 2024-01-14
+- Problem: WordPress filters still use post_date (2024-01-10) ❌
+- Workaround: Complex COALESCE queries needed
 ```
 
-**After Implementation:**
+**After This Change (Updating primary timestamps):**
 ```
 Invoice INV-001:
 - Created: 2024-01-10 (fictive draft)
-- Activation Date: 2024-01-15 (when payment added)
-- Reported Revenue Date: 2024-01-15 ✅ (correct - uses activation_date)
+- Payment Added: 2024-01-14 (became active)
+- created_at: 2024-01-14 ✅ UPDATED
+- post_date: 2024-01-14 ✅ UPDATED
+- activation_date: 2024-01-14 (flag only)
+- Benefit: All WordPress filters automatically use post_date (2024-01-14) ✅
+- No special queries needed!
 ```
-
-### Scenario 2: Invoice Created Directly as Active
-
-**Before Implementation:**
-```
-Invoice INV-002:
-- Created: 2024-01-20 (with payment, directly active)
-- Reported Revenue Date: 2024-01-20 ✅ (correct, but by accident)
-```
-
-**After Implementation:**
 ```
 Invoice INV-002:
 - Created: 2024-01-20 (with payment, directly active)
