@@ -328,9 +328,11 @@ class CIG_Database {
         if (version_compare($current_version, self::DB_VERSION, '<')) {
             // Schema needs update
             // First try to create tables (for fresh installs)
+            // create_tables() uses dbDelta which is safe and won't fail if tables exist
             $this->create_tables();
             
             // Then run migration to add any missing columns (for existing tables)
+            // This handles upgrades from older schema versions
             return $this->migrate_schema_to_current();
         }
 
@@ -339,6 +341,10 @@ class CIG_Database {
 
     /**
      * Migrate schema to current version by adding missing columns
+     * 
+     * Note: Table names are validated through get_table_name() which only returns
+     * predefined table names from the $tables array, preventing SQL injection.
+     * Column definitions are hardcoded in this method and not user-supplied.
      *
      * @return bool Success status
      */
@@ -557,5 +563,21 @@ class CIG_Database {
         );
         $result = $this->wpdb->get_var($query);
         return $result === $column_name;
+    }
+
+    /**
+     * Check if an index exists on a table
+     *
+     * @param string $table_name Full table name with prefix
+     * @param string $index_name Index name to check
+     * @return bool True if index exists
+     */
+    private function index_exists($table_name, $index_name) {
+        $query = $this->wpdb->prepare(
+            "SHOW INDEX FROM `{$table_name}` WHERE Key_name = %s",
+            $index_name
+        );
+        $result = $this->wpdb->get_var($query);
+        return !empty($result);
     }
 }

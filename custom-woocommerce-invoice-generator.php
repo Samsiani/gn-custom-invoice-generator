@@ -208,9 +208,14 @@ final class CIG_Invoice_Generator {
         $this->database      = new CIG_Database();
         
         // Run schema migrations if needed (for existing installations)
+        // This is a one-time check that uses option caching, so it's lightweight
         add_action('admin_init', function() {
-            $this->database->maybe_migrate_schema();
-        });
+            // Only run if version is outdated
+            $current_version = get_option('cig_db_version', '0.0.0');
+            if (version_compare($current_version, '5.0.0', '<')) {
+                $this->database->maybe_migrate_schema();
+            }
+        }, 5);
         
         $this->invoice_repo  = new CIG_Invoice_Repository($this->database, $this->logger, $this->cache);
         $this->items_repo    = new CIG_Invoice_Items_Repository($this->database, $this->logger, $this->cache);
