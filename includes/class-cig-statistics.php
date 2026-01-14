@@ -162,14 +162,6 @@ class CIG_Statistics {
             'fields'         => 'ids'
         ];
 
-        if ($date_from && $date_to) {
-            $args['date_query'] = [[
-                'after'     => $date_from . ' 00:00:00',
-                'before'    => $date_to   . ' 23:59:59',
-                'inclusive' => true
-            ]];
-        }
-
         // Status Filter Logic
         $meta_query = [];
         if ($status === 'fictive') {
@@ -191,7 +183,52 @@ class CIG_Statistics {
         }
 
         $query = new WP_Query($args);
-        $invoice_ids = $query->posts;
+        $all_invoice_ids = $query->posts;
+        
+        // Batch fetch activation dates
+        $activation_dates = [];
+        if (!empty($all_invoice_ids)) {
+            global $wpdb;
+            $post_ids_str = implode(',', array_map('intval', $all_invoice_ids));
+            
+            $results = $wpdb->get_results("
+                SELECT post_id, meta_value 
+                FROM {$wpdb->postmeta} 
+                WHERE post_id IN ({$post_ids_str}) 
+                AND meta_key = '_cig_activation_date'
+            ", ARRAY_A);
+            
+            foreach ($results as $row) {
+                $activation_dates[$row['post_id']] = $row['meta_value'];
+            }
+        }
+        
+        // Filter by date using activation_date with fallback to post_date
+        $invoice_ids = [];
+        if ($date_from && $date_to) {
+            $start_ts = strtotime($date_from . ' 00:00:00');
+            $end_ts = strtotime($date_to . ' 23:59:59');
+            
+            // Batch fetch post dates
+            $post_dates = [];
+            if (!empty($all_invoice_ids)) {
+                foreach ($all_invoice_ids as $invoice_id) {
+                    $post_dates[$invoice_id] = get_post_field('post_date', $invoice_id);
+                }
+            }
+            
+            foreach ($all_invoice_ids as $invoice_id) {
+                $activation_date = isset($activation_dates[$invoice_id]) ? $activation_dates[$invoice_id] : null;
+                $effective_date = $activation_date ?: ($post_dates[$invoice_id] ?? '');
+                $ts = strtotime($effective_date);
+                
+                if ($ts >= $start_ts && $ts <= $end_ts) {
+                    $invoice_ids[] = $invoice_id;
+                }
+            }
+        } else {
+            $invoice_ids = $all_invoice_ids;
+        }
 
         // Collect user statistics
         $users_data = [];
@@ -233,7 +270,10 @@ class CIG_Statistics {
                 }
             }
 
-            $invoice_date = get_post_field('post_date', $invoice_id);
+            // Use activation_date if available, otherwise fall back to post_date (already batch-fetched)
+            $activation_date = isset($activation_dates[$invoice_id]) ? $activation_dates[$invoice_id] : null;
+            $invoice_date = $activation_date ?: get_post_field('post_date', $invoice_id);
+            
             if (empty($users_data[$author_id]['Last Invoice Date']) || $invoice_date > $users_data[$author_id]['Last Invoice Date']) {
                 $users_data[$author_id]['Last Invoice Date'] = date('Y-m-d H:i:s', strtotime($invoice_date));
             }

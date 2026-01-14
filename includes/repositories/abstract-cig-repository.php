@@ -138,6 +138,11 @@ abstract class Abstract_CIG_Repository {
                 continue;
             }
 
+            // Handle date range filtering with activation_date fallback
+            if ($key === 'date_from' || $key === 'date_to') {
+                continue; // These are handled separately
+            }
+
             if (is_array($value)) {
                 // IN clause
                 $placeholders = implode(',', array_fill(0, count($value), '%s'));
@@ -146,6 +151,25 @@ abstract class Abstract_CIG_Repository {
             } else {
                 $where[] = "`{$key}` = %s";
                 $values[] = $value;
+            }
+        }
+        
+        // Handle date range filtering with activation_date fallback to created_at
+        if (isset($filters['date_from']) || isset($filters['date_to'])) {
+            $date_conditions = [];
+            
+            if (isset($filters['date_from'])) {
+                $date_conditions[] = "COALESCE(`activation_date`, `created_at`) >= %s";
+                $values[] = $filters['date_from'];
+            }
+            
+            if (isset($filters['date_to'])) {
+                $date_conditions[] = "COALESCE(`activation_date`, `created_at`) <= %s";
+                $values[] = $filters['date_to'];
+            }
+            
+            if (!empty($date_conditions)) {
+                $where[] = '(' . implode(' AND ', $date_conditions) . ')';
             }
         }
 
@@ -163,6 +187,11 @@ abstract class Abstract_CIG_Repository {
         $order = strtoupper($order);
         if (!in_array($order, ['ASC', 'DESC'], true)) {
             $order = 'DESC';
+        }
+
+        // Use activation_date with fallback to created_at for default ordering
+        if ($order_by === 'created_at' || $order_by === 'activation_date') {
+            return "ORDER BY COALESCE(`activation_date`, `created_at`) {$order}";
         }
 
         return $order_by ? "ORDER BY `{$order_by}` {$order}" : '';

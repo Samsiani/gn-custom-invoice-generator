@@ -34,20 +34,80 @@ class CIG_Ajax_Statistics {
         }
         return [['relation' => 'OR', ['key' => '_cig_invoice_status', 'value' => 'standard', 'compare' => '='], ['key' => '_cig_invoice_status', 'compare' => 'NOT EXISTS']]];
     }
+    
+    /**
+     * Get activation dates for multiple posts efficiently (batch query)
+     *
+     * @param array $post_ids Array of post IDs
+     * @return array Associative array of post_id => activation_date
+     */
+    private function get_activation_dates_batch($post_ids) {
+        if (empty($post_ids)) {
+            return [];
+        }
+        
+        global $wpdb;
+        $post_ids_str = implode(',', array_map('intval', $post_ids));
+        
+        $results = $wpdb->get_results("
+            SELECT post_id, meta_value 
+            FROM {$wpdb->postmeta} 
+            WHERE post_id IN ({$post_ids_str}) 
+            AND meta_key = '_cig_activation_date'
+        ", ARRAY_A);
+        
+        $activation_dates = [];
+        foreach ($results as $row) {
+            $activation_dates[$row['post_id']] = $row['meta_value'];
+        }
+        
+        return $activation_dates;
+    }
 
     public function get_statistics_summary() {
     $this->security->verify_ajax_request('cig_nonce', 'nonce', 'edit_posts');
+    
+    $date_from = !empty($_POST['date_from']) ? sanitize_text_field($_POST['date_from']) : '';
+    $date_to = !empty($_POST['date_to']) ? sanitize_text_field($_POST['date_to']) : '';
+    $status = sanitize_text_field($_POST['status'] ?? 'standard');
+    
+    // Get all invoices matching status
     $args = ['post_type' => 'invoice', 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids'];
-    
-    if (!empty($_POST['date_from']) && !empty($_POST['date_to'])) {
-        $args['date_query'] = [['after' => $_POST['date_from'].' 00:00:00', 'before' => $_POST['date_to'].' 23:59:59', 'inclusive' => true]];
-    }
-    
-    $mq = $this->get_status_meta_query(sanitize_text_field($_POST['status'] ?? 'standard'));
+    $mq = $this->get_status_meta_query($status);
     if ($mq) $args['meta_query'] = $mq;
-
+    
     $query = new WP_Query($args);
-    $ids = $query->posts;
+    $all_ids = $query->posts;
+    
+    // Batch fetch activation dates for all invoices
+    $activation_dates = $this->get_activation_dates_batch($all_ids);
+    
+    // Filter by date if provided (using activation_date with fallback to post_date)
+    $ids = [];
+    if ($date_from && $date_to) {
+        $start_ts = strtotime($date_from . ' 00:00:00');
+        $end_ts = strtotime($date_to . ' 23:59:59');
+        
+        // Batch fetch post dates
+        $post_dates = [];
+        if (!empty($all_ids)) {
+            foreach ($all_ids as $id) {
+                $post_dates[$id] = get_post_field('post_date', $id);
+            }
+        }
+        
+        foreach ($all_ids as $id) {
+            $activation_date = isset($activation_dates[$id]) ? $activation_dates[$id] : null;
+            $effective_date = $activation_date ?: ($post_dates[$id] ?? '');
+            $ts = strtotime($effective_date);
+            
+            if ($ts >= $start_ts && $ts <= $end_ts) {
+                $ids[] = $id;
+            }
+        }
+    } else {
+        $ids = $all_ids;
+    }
 
     // დავამატეთ 'total_reserved_invoices' მასივში
     $stats = [
@@ -105,12 +165,51 @@ class CIG_Ajax_Statistics {
 
     public function get_users_statistics() {
         $this->security->verify_ajax_request('cig_nonce', 'nonce', 'edit_posts');
+        
+        $date_from = !empty($_POST['date_from']) ? sanitize_text_field($_POST['date_from']) : '';
+        $date_to = !empty($_POST['date_to']) ? sanitize_text_field($_POST['date_to']) : '';
+        $status = sanitize_text_field($_POST['status'] ?? 'standard');
+        
+        // Get all invoices matching status
         $args = ['post_type' => 'invoice', 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids'];
-        if (!empty($_POST['date_from'])) $args['date_query'] = [['after' => $_POST['date_from'].' 00:00:00', 'before' => $_POST['date_to'].' 23:59:59', 'inclusive' => true]];
-        $mq = $this->get_status_meta_query(sanitize_text_field($_POST['status'] ?? 'standard'));
+        $mq = $this->get_status_meta_query($status);
         if ($mq) $args['meta_query'] = $mq;
+        
+        $query = new WP_Query($args);
+        $all_ids = $query->posts;
+        
+        // Batch fetch activation dates for all invoices
+        $activation_dates = $this->get_activation_dates_batch($all_ids);
+        
+        // Filter by date if provided (using activation_date with fallback to post_date)
+        $ids = [];
+        if ($date_from && $date_to) {
+            $start_ts = strtotime($date_from . ' 00:00:00');
+            $end_ts = strtotime($date_to . ' 23:59:59');
+            
+            // Batch fetch post dates
+            $post_dates = [];
+            if (!empty($all_ids)) {
+                foreach ($all_ids as $id) {
+                    $post_dates[$id] = get_post_field('post_date', $id);
+                }
+            }
+            
+            foreach ($all_ids as $id) {
+                $activation_date = isset($activation_dates[$id]) ? $activation_dates[$id] : null;
+                $effective_date = $activation_date ?: ($post_dates[$id] ?? '');
+                $ts = strtotime($effective_date);
+                
+                if ($ts >= $start_ts && $ts <= $end_ts) {
+                    $ids[] = $id;
+                }
+            }
+        } else {
+            $ids = $all_ids;
+        }
+        
         $users = [];
-        foreach ((new WP_Query($args))->posts as $id) {
+        foreach ($ids as $id) {
             $uid = get_post_field('post_author', $id);
             if (!isset($users[$uid])) {
                 $u = get_userdata($uid); if(!$u) continue;
@@ -122,7 +221,9 @@ class CIG_Ajax_Statistics {
                 $q=floatval($it['qty']); $s=strtolower($it['status']??'sold');
                 if($s==='sold') $users[$uid]['total_sold']+=$q; elseif($s==='reserved') $users[$uid]['total_reserved']+=$q; elseif($s==='canceled') $users[$uid]['total_canceled']+=$q;
             }
-            $d = get_post_field('post_date', $id);
+            // Use activation_date with fallback to post_date
+            $activation_date = isset($activation_dates[$id]) ? $activation_dates[$id] : null;
+            $d = $activation_date ?: get_post_field('post_date', $id);
             if ($d > $users[$uid]['last_invoice_date']) $users[$uid]['last_invoice_date'] = $d;
         }
         $search = sanitize_text_field($_POST['search']??'');
@@ -159,14 +260,38 @@ class CIG_Ajax_Statistics {
     
     $status = sanitize_text_field($_POST['status'] ?? 'standard');
     $mf = sanitize_text_field($_POST['payment_method'] ?? '');
+    $date_from = !empty($_POST['date_from']) ? sanitize_text_field($_POST['date_from']) : '';
+    $date_to = !empty($_POST['date_to']) ? sanitize_text_field($_POST['date_to']) : '';
+    
+    // Get all invoices matching status
     $args = ['post_type'=>'invoice', 'post_status'=>'publish', 'posts_per_page'=>200, 'orderby'=>'date', 'order'=>'DESC'];
-    
-    if (!empty($_POST['date_from'])) {
-        $args['date_query'] = [['after'=>$_POST['date_from'].' 00:00:00', 'before'=>$_POST['date_to'].' 23:59:59', 'inclusive'=>true]];
-    }
-    
     $mq = $this->get_status_meta_query($status); 
     if($mq) $args['meta_query'] = $mq;
+    
+    $query = new WP_Query($args);
+    $posts = $query->posts;
+    
+    // Batch fetch activation dates
+    $post_ids = array_map(function($p) { return $p->ID; }, $posts);
+    $activation_dates = $this->get_activation_dates_batch($post_ids);
+    
+    // Filter by date if provided (using activation_date with fallback to post_date)
+    if ($date_from && $date_to) {
+        $start_ts = strtotime($date_from . ' 00:00:00');
+        $end_ts = strtotime($date_to . ' 23:59:59');
+        
+        $filtered_posts = [];
+        foreach ($posts as $p) {
+            $activation_date = isset($activation_dates[$p->ID]) ? $activation_dates[$p->ID] : null;
+            $effective_date = $activation_date ?: $p->post_date;
+            $ts = strtotime($effective_date);
+            
+            if ($ts >= $start_ts && $ts <= $end_ts) {
+                $filtered_posts[] = $p;
+            }
+        }
+        $posts = $filtered_posts;
+    }
     
     $method_labels = [
         'company_transfer'=>__('კომპანიის ჩარიცხვა','cig'), 
@@ -177,7 +302,7 @@ class CIG_Ajax_Statistics {
     ];
     
     $rows=[];
-    foreach((new WP_Query($args))->posts as $p) {
+    foreach($posts as $p) {
         $id=$p->ID;
         
         // --- ახალი ლოგიკა: რეზერვაციის შემოწმება ---
@@ -225,6 +350,10 @@ class CIG_Ajax_Statistics {
         $tot=(float)get_post_meta($id,'_cig_invoice_total',true);
         $pd=(float)get_post_meta($id,'_cig_payment_paid_amount',true);
         
+        // Use activation_date with fallback (already batch-fetched)
+        $activation_date = isset($activation_dates[$id]) ? $activation_dates[$id] : null;
+        $display_date = $activation_date ?: get_the_date('Y-m-d H:i', $p);
+        
         $rows[]=[
             'id'=>$id, 
             'invoice_number'=>get_post_meta($id,'_cig_invoice_number',true), 
@@ -235,7 +364,7 @@ class CIG_Ajax_Statistics {
             'paid_breakdown'=>$bd, 
             'due'=>max(0,$tot-$pd), 
             'author'=>get_the_author_meta('display_name',$p->post_author), 
-            'date'=>get_the_date('Y-m-d H:i',$p), 
+            'date'=>$display_date, 
             'status'=>get_post_meta($id,'_cig_invoice_status',true), 
             'view_url'=>get_permalink($id), 
             'edit_url'=>add_query_arg('edit','1',get_permalink($id))
@@ -246,17 +375,60 @@ class CIG_Ajax_Statistics {
 
     public function get_products_by_filters() {
         $this->security->verify_ajax_request('cig_nonce', 'nonce', 'edit_posts');
+        
+        $date_from = !empty($_POST['date_from']) ? sanitize_text_field($_POST['date_from']) : '';
+        $date_to = !empty($_POST['date_to']) ? sanitize_text_field($_POST['date_to']) : '';
+        $invoice_status = sanitize_text_field($_POST['invoice_status'] ?? 'standard');
+        
+        // Get all invoices matching status
         $args = ['post_type'=>'invoice', 'post_status'=>'publish', 'posts_per_page'=>-1, 'fields'=>'ids', 'orderby'=>'date', 'order'=>'DESC'];
-        if (!empty($_POST['date_from'])) $args['date_query'] = [['after'=>$_POST['date_from'].' 00:00:00', 'before'=>$_POST['date_to'].' 23:59:59', 'inclusive'=>true]];
-        $mq = $this->get_status_meta_query($_POST['invoice_status']??'standard');
+        $mq = $this->get_status_meta_query($invoice_status);
         if(!empty($_POST['payment_method']) && $_POST['payment_method']!=='all') $mq[]=['key'=>'_cig_payment_type', 'value'=>$_POST['payment_method'], 'compare'=>'='];
-        if($mq) $args['meta_query']=$mq;
+        if($mq) $args['meta_query'] = $mq;
+        
+        $query = new WP_Query($args);
+        $all_ids = $query->posts;
+        
+        // Batch fetch activation dates
+        $activation_dates = $this->get_activation_dates_batch($all_ids);
+        
+        // Filter by date if provided (using activation_date with fallback to post_date)
+        $ids = [];
+        if ($date_from && $date_to) {
+            $start_ts = strtotime($date_from . ' 00:00:00');
+            $end_ts = strtotime($date_to . ' 23:59:59');
+            
+            // Batch fetch post dates
+            $post_dates = [];
+            if (!empty($all_ids)) {
+                foreach ($all_ids as $id) {
+                    $post_dates[$id] = get_post_field('post_date', $id);
+                }
+            }
+            
+            foreach ($all_ids as $id) {
+                $activation_date = isset($activation_dates[$id]) ? $activation_dates[$id] : null;
+                $effective_date = $activation_date ?: ($post_dates[$id] ?? '');
+                $ts = strtotime($effective_date);
+                
+                if ($ts >= $start_ts && $ts <= $end_ts) {
+                    $ids[] = $id;
+                }
+            }
+        } else {
+            $ids = $all_ids;
+        }
         
         $rows=[]; $st=sanitize_text_field($_POST['status']??'sold');
-        foreach((new WP_Query($args))->posts as $id) {
+        foreach($ids as $id) {
             foreach(get_post_meta($id,'_cig_items',true)?:[] as $it) {
                 if(strtolower($it['status']??'sold')!==$st) continue;
-                $rows[]=['name'=>$it['name']??'', 'sku'=>$it['sku']??'', 'image'=>$it['image']??'', 'qty'=>floatval($it['qty']), 'invoice_id'=>$id, 'invoice_number'=>get_post_meta($id,'_cig_invoice_number',true), 'author_name'=>get_the_author_meta('display_name',get_post_field('post_author',$id)), 'date'=>get_post_field('post_date',$id), 'view_url'=>get_permalink($id), 'edit_url'=>add_query_arg('edit','1',get_permalink($id))];
+                
+                // Use activation_date with fallback (already batch-fetched)
+                $activation_date = isset($activation_dates[$id]) ? $activation_dates[$id] : null;
+                $display_date = $activation_date ?: get_post_field('post_date', $id);
+                
+                $rows[]=['name'=>$it['name']??'', 'sku'=>$it['sku']??'', 'image'=>$it['image']??'', 'qty'=>floatval($it['qty']), 'invoice_id'=>$id, 'invoice_number'=>get_post_meta($id,'_cig_invoice_number',true), 'author_name'=>get_the_author_meta('display_name',get_post_field('post_author',$id)), 'date'=>$display_date, 'view_url'=>get_permalink($id), 'edit_url'=>add_query_arg('edit','1',get_permalink($id))];
                 if(count($rows)>=500) break 2;
             }
         }
