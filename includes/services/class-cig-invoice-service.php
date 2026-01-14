@@ -294,13 +294,7 @@ class CIG_Invoice_Service {
         
         // Update WordPress post_date if invoice was activated
         if ($update_post_date && $existing->old_post_id) {
-            wp_update_post([
-                'ID' => $existing->old_post_id,
-                'post_date' => $created_at,
-                'post_date_gmt' => get_gmt_from_date($created_at),
-                'post_modified' => current_time('mysql'),
-                'post_modified_gmt' => get_gmt_from_date(current_time('mysql')),
-            ]);
+            $this->force_sync_wp_post_date($existing->old_post_id, $created_at);
         }
 
         // Update items - delete old and insert new
@@ -511,5 +505,53 @@ class CIG_Invoice_Service {
             delete_post_meta($post_id, '_cig_activation_date');
         }
         // Note: Invoices created directly as Standard use created_at for statistics via COALESCE fallback in queries
+    }
+
+    /**
+     * Force synchronization of WordPress post_date using direct SQL update
+     * 
+     * This method bypasses wp_update_post() to ensure post_date is reliably updated
+     * even when hooks or filters might interfere with the standard update process.
+     *
+     * @param int $post_id The WordPress post ID to update
+     * @param string $date The date in MySQL format (Y-m-d H:i:s)
+     * @return bool True on success, false on failure
+     */
+    private function force_sync_wp_post_date($post_id, $date) {
+        global $wpdb;
+        
+        // Validate post_id
+        if (empty($post_id) || !is_numeric($post_id)) {
+            return false;
+        }
+        
+        // Validate date format
+        if (empty($date)) {
+            return false;
+        }
+        
+        // Calculate GMT date
+        $date_gmt = get_gmt_from_date($date);
+        $modified = current_time('mysql');
+        $modified_gmt = get_gmt_from_date($modified);
+        
+        // Direct SQL update to wp_posts table
+        $result = $wpdb->update(
+            $wpdb->posts,
+            [
+                'post_date' => $date,
+                'post_date_gmt' => $date_gmt,
+                'post_modified' => $modified,
+                'post_modified_gmt' => $modified_gmt,
+            ],
+            ['ID' => $post_id],
+            ['%s', '%s', '%s', '%s'],
+            ['%d']
+        );
+        
+        // Clean post cache to ensure changes are reflected immediately
+        clean_post_cache($post_id);
+        
+        return $result !== false;
     }
 }
