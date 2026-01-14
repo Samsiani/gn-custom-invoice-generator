@@ -14,12 +14,12 @@ class CIG_Payment_DTO {
 
     public $id;
     public $invoice_id;
-    public $payment_date;
+    public $date;  // Changed from payment_date to match database (type: date)
     public $payment_method;
     public $amount;
     public $transaction_ref;
     public $note;
-    public $created_by;
+    public $user_id;  // Changed from created_by to match database
     public $created_at;
 
     /**
@@ -33,12 +33,23 @@ class CIG_Payment_DTO {
         
         $dto->id = isset($data['id']) ? (int)$data['id'] : null;
         $dto->invoice_id = isset($data['invoice_id']) ? (int)$data['invoice_id'] : 0;
-        $dto->payment_date = $data['payment_date'] ?? $data['date'] ?? current_time('mysql');
+        // Support both old and new column names, convert datetime to date format for database
+        $payment_date = $data['date'] ?? $data['payment_date'] ?? current_time('mysql');
+        // Extract just the date part (YYYY-MM-DD) from datetime if needed
+        // Validate the date string before conversion
+        $timestamp = strtotime($payment_date);
+        if ($timestamp === false) {
+            // Invalid date, use current date
+            $dto->date = date('Y-m-d');
+        } else {
+            $dto->date = date('Y-m-d', $timestamp);
+        }
         $dto->payment_method = $data['payment_method'] ?? $data['method'] ?? '';
         $dto->amount = isset($data['amount']) ? (float)$data['amount'] : 0.00;
         $dto->transaction_ref = $data['transaction_ref'] ?? $data['ref'] ?? '';
         $dto->note = $data['note'] ?? $data['comment'] ?? '';
-        $dto->created_by = isset($data['created_by']) ? (int)$data['created_by'] : get_current_user_id();
+        // Support both old and new column names
+        $dto->user_id = isset($data['user_id']) ? (int)$data['user_id'] : (isset($data['created_by']) ? (int)$data['created_by'] : get_current_user_id());
         $dto->created_at = $data['created_at'] ?? current_time('mysql');
         
         return $dto;
@@ -53,12 +64,12 @@ class CIG_Payment_DTO {
     public function to_array($include_id = false) {
         $data = [
             'invoice_id' => $this->invoice_id,
-            'payment_date' => $this->payment_date,
+            'date' => $this->date,
             'payment_method' => $this->payment_method,
             'amount' => $this->amount,
             'transaction_ref' => $this->transaction_ref,
             'note' => $this->note,
-            'created_by' => $this->created_by,
+            'user_id' => $this->user_id,
             'created_at' => $this->created_at,
         ];
 
@@ -81,7 +92,7 @@ class CIG_Payment_DTO {
             $errors[] = 'Valid invoice ID is required';
         }
 
-        if (empty($this->payment_date)) {
+        if (empty($this->date)) {
             $errors[] = 'Payment date is required';
         }
 

@@ -173,7 +173,7 @@ class CIG_Invoice_Service {
         }
 
         // Security check for completed invoices
-        if ($existing->lifecycle_status === 'completed' && !current_user_can('administrator')) {
+        if ($existing->status === 'completed' && !current_user_can('administrator')) {
             return false;
         }
 
@@ -201,7 +201,7 @@ class CIG_Invoice_Service {
         // Update invoice DTO
         $invoice_dto = CIG_Invoice_DTO::from_array([
             'id' => $invoice_id,
-            'post_id' => $existing->post_id,
+            'old_post_id' => $existing->old_post_id,
             'invoice_number' => $data['invoice_number'] ?? $existing->invoice_number,
             'buyer_name' => $buyer['name'] ?? '',
             'buyer_tax_id' => $buyer['tax_id'] ?? '',
@@ -209,8 +209,8 @@ class CIG_Invoice_Service {
             'buyer_phone' => $buyer['phone'] ?? '',
             'buyer_email' => $buyer['email'] ?? '',
             'customer_id' => $customer_id,
-            'invoice_status' => $invoice_status,
-            'lifecycle_status' => $existing->lifecycle_status,
+            'type' => $invoice_status,
+            'status' => $existing->status,
             'rs_uploaded' => $existing->rs_uploaded,
             'subtotal' => $totals['subtotal'],
             'tax_amount' => $totals['tax'],
@@ -219,7 +219,7 @@ class CIG_Invoice_Service {
             'paid_amount' => $paid_amount,
             'balance' => $totals['total'] - $paid_amount,
             'general_note' => $general_note,
-            'created_by' => $existing->created_by,
+            'author_id' => $existing->author_id,
             'created_at' => $existing->created_at,
             'updated_at' => current_time('mysql'),
         ]);
@@ -241,7 +241,7 @@ class CIG_Invoice_Service {
         }
 
         // Also update postmeta for backward compatibility
-        $this->save_to_postmeta($existing->post_id, $data, $invoice_status);
+        $this->save_to_postmeta($existing->old_post_id, $data, $invoice_status);
 
         return true;
     }
@@ -265,8 +265,8 @@ class CIG_Invoice_Service {
         $result = $this->invoice_repo->delete($invoice_id);
 
         // Also delete post
-        if ($result && $invoice->post_id) {
-            wp_delete_post($invoice->post_id, true);
+        if ($result && $invoice->old_post_id) {
+            wp_delete_post($invoice->old_post_id, true);
         }
 
         return $result;
@@ -307,7 +307,7 @@ class CIG_Invoice_Service {
             return false;
         }
 
-        $invoice->invoice_status = $new_status;
+        $invoice->type = $new_status;
         return $this->invoice_repo->update($invoice_id, $invoice);
     }
 
@@ -323,7 +323,7 @@ class CIG_Invoice_Service {
             return false;
         }
 
-        $invoice->lifecycle_status = 'completed';
+        $invoice->status = 'completed';
         return $this->invoice_repo->update($invoice_id, $invoice);
     }
 
