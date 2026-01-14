@@ -179,6 +179,9 @@ final class CIG_Invoice_Generator {
         
         // Load User Restrictions
         require_once CIG_INCLUDES_DIR . 'class-cig-user-restrictions.php';
+        
+        // Load Migration Admin
+        require_once CIG_INCLUDES_DIR . 'admin/class-cig-migration-admin.php';
     }
 
     /**
@@ -244,6 +247,9 @@ final class CIG_Invoice_Generator {
         
         // Init User Restrictions
         $this->user_restrictions = new CIG_User_Restrictions();
+        
+        // Init Migration Admin
+        new CIG_Migration_Admin($this->migrator, $this->security);
     }
 
     /**
