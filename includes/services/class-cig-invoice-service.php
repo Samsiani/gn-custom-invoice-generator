@@ -265,7 +265,7 @@ class CIG_Invoice_Service {
                 'post_date' => $created_at,
                 'post_date_gmt' => get_gmt_from_date($created_at),
                 'post_modified' => current_time('mysql'),
-                'post_modified_gmt' => current_time('mysql', true),
+                'post_modified_gmt' => get_gmt_from_date(current_time('mysql')),
             ]);
         }
 
