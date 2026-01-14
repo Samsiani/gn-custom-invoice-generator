@@ -133,6 +133,8 @@ class CIG_Migrator {
      */
     public function migrate_single_invoice($post_id) {
         try {
+            $this->log_info('Starting migration for invoice', ['post_id' => $post_id]);
+            
             // Create invoice DTO from postmeta
             $invoice_dto = CIG_Invoice_DTO::from_postmeta($post_id);
             
@@ -140,25 +142,42 @@ class CIG_Migrator {
                 $this->log_error('Failed to create DTO from postmeta', ['post_id' => $post_id]);
                 return false;
             }
+            
+            // Validate the DTO
+            $validation_errors = $invoice_dto->validate();
+            if (!empty($validation_errors)) {
+                $this->log_error('Invoice validation failed', [
+                    'post_id' => $post_id,
+                    'errors' => $validation_errors,
+                    'invoice_data' => $invoice_dto->to_array()
+                ]);
+                return false;
+            }
 
             // Check if already migrated
             $existing = $this->invoice_repo->find_by_post_id($post_id);
             if ($existing) {
+                $this->log_info('Invoice already exists, updating', ['post_id' => $post_id, 'existing_id' => $existing->id]);
                 // Update instead of insert
                 return $this->invoice_repo->update($existing->id, $invoice_dto);
             }
 
             // Create invoice in custom table
+            $this->log_info('Creating invoice in custom table', ['post_id' => $post_id]);
             $invoice_id = $this->invoice_repo->create($invoice_dto);
             
             if (!$invoice_id) {
                 $this->log_error('Failed to create invoice in custom table', ['post_id' => $post_id]);
                 return false;
             }
+            
+            $this->log_info('Invoice created successfully', ['post_id' => $post_id, 'invoice_id' => $invoice_id]);
 
             // Migrate items
             $items_data = get_post_meta($post_id, '_cig_invoice_items', true);
             if (is_array($items_data) && !empty($items_data)) {
+                $this->log_info('Migrating invoice items', ['post_id' => $post_id, 'item_count' => count($items_data)]);
+                
                 $items = [];
                 foreach ($items_data as $item) {
                     if (empty($item['name'])) {
@@ -178,13 +197,22 @@ class CIG_Migrator {
                 }
                 
                 if (!empty($items)) {
-                    $this->items_repo->bulk_insert($invoice_id, $items);
+                    $items_result = $this->items_repo->bulk_insert($invoice_id, $items);
+                    if ($items_result) {
+                        $this->log_info('Invoice items migrated successfully', ['post_id' => $post_id, 'items_migrated' => count($items)]);
+                    } else {
+                        $this->log_error('Failed to migrate invoice items', ['post_id' => $post_id, 'items' => $items]);
+                    }
                 }
+            } else {
+                $this->log_info('No items to migrate', ['post_id' => $post_id]);
             }
 
             // Migrate payment history
             $payment_history = get_post_meta($post_id, '_cig_payment_history', true);
             if (is_array($payment_history) && !empty($payment_history)) {
+                $this->log_info('Migrating payment history', ['post_id' => $post_id, 'payment_count' => count($payment_history)]);
+                
                 foreach ($payment_history as $payment) {
                     $payment_dto = CIG_Payment_DTO::from_array([
                         'invoice_id' => $invoice_id,
@@ -195,8 +223,13 @@ class CIG_Migrator {
                         'created_by' => $payment['user_id'] ?? 0,
                     ]);
                     
-                    $this->payment_repo->add_payment($payment_dto);
+                    $payment_result = $this->payment_repo->add_payment($payment_dto);
+                    if (!$payment_result) {
+                        $this->log_error('Failed to migrate payment', ['post_id' => $post_id, 'payment' => $payment]);
+                    }
                 }
+            } else {
+                $this->log_info('No payment history to migrate', ['post_id' => $post_id]);
             }
 
             $this->log_info('Invoice migrated successfully', ['post_id' => $post_id, 'invoice_id' => $invoice_id]);
@@ -204,7 +237,23 @@ class CIG_Migrator {
             return true;
 
         } catch (Exception $e) {
-            $this->log_error('Migration error', ['post_id' => $post_id, 'error' => $e->getMessage()]);
+            $this->log_error('Migration exception', [
+                'post_id' => $post_id,
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return false;
+        } catch (Error $e) {
+            // Catch PHP 7+ errors
+            $this->log_error('Migration fatal error', [
+                'post_id' => $post_id,
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return false;
         }
     }
