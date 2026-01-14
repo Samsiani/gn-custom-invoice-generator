@@ -253,7 +253,7 @@ class CIG_Invoice_Repository extends Abstract_CIG_Repository {
         // Clear cache
         $this->delete_cache('cig_invoice_' . $id);
         $this->delete_cache('cig_invoice_num_' . md5($dto->invoice_number));
-        $this->delete_cache('cig_invoice_post_' . $dto->post_id);
+        $this->delete_cache('cig_invoice_post_' . $dto->old_post_id);
 
         $this->log_info('Invoice updated', ['invoice_id' => $id]);
 
