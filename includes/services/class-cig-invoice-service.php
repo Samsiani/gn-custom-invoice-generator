@@ -80,10 +80,10 @@ class CIG_Invoice_Service {
         // Determine invoice status based on payment
         $invoice_status = $paid_amount > 0 ? 'standard' : 'fictive';
         
-        // Set activated_at if invoice is being created as Standard (with payment)
-        $activated_at = null;
+        // Set activation_date if invoice is being created as Standard (with payment)
+        $activation_date = null;
         if ($invoice_status === 'standard') {
-            $activated_at = current_time('mysql');
+            $activation_date = current_time('mysql');
         }
         
         // Create post first
@@ -124,7 +124,7 @@ class CIG_Invoice_Service {
             'created_by' => get_current_user_id(),
             'created_at' => current_time('mysql'),
             'updated_at' => current_time('mysql'),
-            'activated_at' => $activated_at,
+            'activation_date' => $activation_date,
         ]);
 
         // Insert into custom table
@@ -202,17 +202,17 @@ class CIG_Invoice_Service {
         // Determine invoice status
         $invoice_status = $paid_amount > 0 ? 'standard' : 'fictive';
         
-        // Handle activated_at logic
-        $activated_at = $existing->activated_at; // Preserve existing activated_at by default
+        // Handle activation_date logic
+        $activation_date = $existing->activation_date; // Preserve existing activation_date by default
         
-        // If transitioning from fictive to standard, set activated_at
-        if ($existing->type === 'fictive' && $invoice_status === 'standard' && empty($existing->activated_at)) {
-            $activated_at = current_time('mysql');
+        // If transitioning from fictive to standard, set activation_date
+        if ($existing->type === 'fictive' && $invoice_status === 'standard' && empty($existing->activation_date)) {
+            $activation_date = current_time('mysql');
         }
         
-        // If reverting from standard to fictive, clear activated_at
+        // If reverting from standard to fictive, clear activation_date
         if ($existing->type === 'standard' && $invoice_status === 'fictive') {
-            $activated_at = null;
+            $activation_date = null;
         }
         
         // Sync customer
@@ -242,7 +242,7 @@ class CIG_Invoice_Service {
             'author_id' => $existing->author_id,
             'created_at' => $existing->created_at,
             'updated_at' => current_time('mysql'),
-            'activated_at' => $activated_at,
+            'activation_date' => $activation_date,
         ]);
 
         // Update invoice
@@ -450,7 +450,7 @@ class CIG_Invoice_Service {
         update_post_meta($post_id, '_cig_invoice_items', $items);
         update_post_meta($post_id, '_cig_payment_history', $payment['history'] ?? []);
         
-        // Save activated_at to postmeta for backward compatibility
+        // Save activation_date to postmeta for backward compatibility
         if ($status === 'standard') {
             // If this is the first time setting to standard, set activation_date
             $existing_activation = get_post_meta($post_id, '_cig_activation_date', true);
