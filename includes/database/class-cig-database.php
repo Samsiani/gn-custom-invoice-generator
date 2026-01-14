@@ -505,7 +505,7 @@ class CIG_Database {
         if ($this->wpdb->get_var("SHOW TABLES LIKE '{$table_payments}'") === $table_payments) {
             $columns_to_add = [
                 'date' => [
-                    'column' => "ADD COLUMN `date` date NOT NULL DEFAULT (CURRENT_DATE) AFTER `invoice_id`",
+                    'column' => "ADD COLUMN `date` date NOT NULL AFTER `invoice_id`",
                     'index' => "ADD KEY `date` (`date`)",
                 ],
                 'payment_method' => [

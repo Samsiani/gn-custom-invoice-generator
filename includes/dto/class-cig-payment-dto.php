@@ -36,7 +36,14 @@ class CIG_Payment_DTO {
         // Support both old and new column names, convert datetime to date format for database
         $payment_date = $data['date'] ?? $data['payment_date'] ?? current_time('mysql');
         // Extract just the date part (YYYY-MM-DD) from datetime if needed
-        $dto->date = date('Y-m-d', strtotime($payment_date));
+        // Validate the date string before conversion
+        $timestamp = strtotime($payment_date);
+        if ($timestamp === false) {
+            // Invalid date, use current date
+            $dto->date = date('Y-m-d');
+        } else {
+            $dto->date = date('Y-m-d', $timestamp);
+        }
         $dto->payment_method = $data['payment_method'] ?? $data['method'] ?? '';
         $dto->amount = isset($data['amount']) ? (float)$data['amount'] : 0.00;
         $dto->transaction_ref = $data['transaction_ref'] ?? $data['ref'] ?? '';

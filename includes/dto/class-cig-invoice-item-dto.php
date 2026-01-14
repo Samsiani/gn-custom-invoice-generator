@@ -50,8 +50,8 @@ class CIG_Invoice_Item_DTO {
         $dto->reservation_expires_at = $data['reservation_expires_at'] ?? null;
         $dto->created_at = $data['created_at'] ?? current_time('mysql');
         
-        // Calculate total if not provided
-        if ($dto->total == 0 && $dto->qty > 0 && $dto->price > 0) {
+        // Calculate total if not provided (with epsilon for float comparison)
+        if (abs($dto->total) < 0.01 && $dto->qty > 0 && $dto->price > 0) {
             $dto->total = $dto->qty * $dto->price;
         }
         
