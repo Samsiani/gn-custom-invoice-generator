@@ -59,16 +59,16 @@ Updated methods:
 #### Invoice Creation (`create_invoice`)
 
 ```php
-// Set activation_date if invoice is being created as Standard (with payment)
+// Do NOT set activation_date for invoices created directly as Standard
+// activation_date should ONLY be set when a Fictive invoice transitions to Standard
+// Invoices "born" active should be categorized by their created_at date
 $activation_date = null;
-if ($invoice_status === 'standard') {
-    $activation_date = current_time('mysql');
-}
 ```
 
 **Behavior:**
-- If an invoice is created with payment → `activation_date` is set immediately to current time
-- If an invoice is created without payment (fictive) → `activation_date` remains NULL
+- If an invoice is created with payment (Standard) → `activation_date` remains NULL (uses `created_at` for statistics)
+- If an invoice is created without payment (Fictive) → `activation_date` remains NULL
+- **Key Point:** Direct creation does NOT set activation_date, ensuring invoices are categorized by their creation date
 
 #### Invoice Update (`update_invoice`)
 
@@ -89,23 +89,29 @@ if ($existing->type === 'standard' && $invoice_status === 'fictive') {
 
 **Behavior:**
 - **Preservation:** Existing `activation_date` is preserved on subsequent edits
-- **Activation:** When fictive → standard transition occurs, `activation_date` is set to current time
-- **Reversion:** When standard → fictive transition occurs, `activation_date` is deleted
+- **Activation:** When Fictive → Standard transition occurs AND activation_date is NULL, set `activation_date` to current time
+- **Reversion:** When Standard → Fictive transition occurs, clear `activation_date`
 - **Idempotency:** Multiple saves of an active invoice don't change its `activation_date`
+- **Direct Creation:** Invoices created directly as Standard will NOT have activation_date set (it remains NULL)
 
 #### Backward Compatibility (Postmeta)
 
 ```php
 // Save activation_date to postmeta for backward compatibility
-if ($status === 'standard') {
-    $existing_activation = get_post_meta($post_id, '_cig_activation_date', true);
-    if (empty($existing_activation)) {
-        update_post_meta($post_id, '_cig_activation_date', current_time('mysql'));
-    }
-} else {
+// Only set activation_date if it's provided (i.e., this is a Fictive→Standard transition)
+if (!empty($activation_date)) {
+    update_post_meta($post_id, '_cig_activation_date', $activation_date);
+} else if ($status === 'fictive') {
+    // If status is fictive, clear any existing activation_date
     delete_post_meta($post_id, '_cig_activation_date');
 }
+// Note: For invoices created directly as Standard, we don't set activation_date
 ```
+
+**Behavior:**
+- Only saves activation_date to postmeta when explicitly provided (Fictive→Standard transition)
+- Clears activation_date when status becomes Fictive
+- Does NOT set activation_date for invoices created directly as Standard
 
 ### 4. Repository Layer Changes
 
@@ -223,7 +229,8 @@ $data = [
 ];
 
 $invoice_service->create_invoice($data);
-// Result: activation_date = current_time() (set immediately)
+// Result: activation_date = NULL (invoice created directly as Standard)
+// Statistics will use created_at for this invoice
 ```
 
 ### Example 2: Creating a Fictive Invoice
@@ -263,23 +270,45 @@ $invoice_service->update_invoice($invoice_id, $data_no_payment);
 
 ## Impact on Reporting
 
-### Before Implementation
+### Scenario 1: Invoice Created as Fictive, Then Activated
 
+**Before Implementation:**
 ```
 Invoice INV-001:
 - Created: 2024-01-10 (fictive draft)
 - Payment Added: 2024-01-15 (became active)
-- Reported Revenue Date: 2024-01-10 ❌ (incorrect)
+- Reported Revenue Date: 2024-01-10 ❌ (incorrect - used creation date)
 ```
 
-### After Implementation
-
+**After Implementation:**
 ```
 Invoice INV-001:
 - Created: 2024-01-10 (fictive draft)
 - Activation Date: 2024-01-15 (when payment added)
-- Reported Revenue Date: 2024-01-15 ✓ (correct)
+- Reported Revenue Date: 2024-01-15 ✅ (correct - uses activation_date)
 ```
+
+### Scenario 2: Invoice Created Directly as Active
+
+**Before Implementation:**
+```
+Invoice INV-002:
+- Created: 2024-01-20 (with payment, directly active)
+- Reported Revenue Date: 2024-01-20 ✅ (correct, but by accident)
+```
+
+**After Implementation:**
+```
+Invoice INV-002:
+- Created: 2024-01-20 (with payment, directly active)
+- Activation Date: NULL (not set for direct creation)
+- Reported Revenue Date: 2024-01-20 ✅ (correct - uses created_at via fallback)
+```
+
+**Key Difference:** The new implementation ensures:
+1. **Transitioned invoices** (Fictive→Standard) use the transition date (activation_date)
+2. **Direct invoices** (created as Standard) use their creation date (created_at)
+3. **Fictive invoices** use their creation date (created_at) via fallback
 
 ## Migration Strategy
 
