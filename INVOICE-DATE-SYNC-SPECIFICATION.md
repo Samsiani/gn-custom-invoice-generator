@@ -20,7 +20,10 @@ When an invoice is created as "Fictive" (draft without payment) and later receiv
 
 **File**: `includes/services/class-cig-invoice-service.php`  
 **Method**: `update_invoice()`  
-**Lines**: 211-216, 262-270
+**Key Sections**: 
+- Transition detection and timestamp update logic
+- WordPress post_date synchronization via `wp_update_post()`
+- Postmeta backward compatibility via `save_to_postmeta()`
 
 ### Business Rules
 
@@ -261,10 +264,10 @@ Existing invoices continue to work without database migration:
 
 ## Version History
 
-- **v5.0.0**: Initial implementation of timestamp synchronization
+- **Current Version**: Implementation complete and tested
 - **Spec Date**: 2026-01-14
 - **Status**: Complete and Tested
 
 ---
 
-For questions or issues, refer to the problem statement or review the test validation script at `/tmp/validate_invoice_date_logic.php`.
+For questions or issues, refer to the problem statement and the comprehensive test scenarios documented in this specification.
