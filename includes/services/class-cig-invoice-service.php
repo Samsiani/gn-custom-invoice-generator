@@ -222,13 +222,31 @@ class CIG_Invoice_Service {
                 if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $payment_date)) {
                     // Extract just the time portion from current site time (already in site timezone)
                     $current_datetime = current_time('mysql');
-                    // Parse the datetime to extract time components safely
-                    $parsed = date_parse($current_datetime);
-                    $time_part = sprintf('%02d:%02d:%02d', $parsed['hour'], $parsed['minute'], $parsed['second']);
-                    $payment_realization_datetime = $payment_date . ' ' . $time_part;
+                    // Validate that current_datetime is properly formatted before parsing
+                    if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $current_datetime)) {
+                        // Parse the datetime to extract time components safely
+                        $parsed = date_parse($current_datetime);
+                        if ($parsed !== false && !$parsed['error_count']) {
+                            $time_part = sprintf('%02d:%02d:%02d', $parsed['hour'], $parsed['minute'], $parsed['second']);
+                            $payment_realization_datetime = $payment_date . ' ' . $time_part;
+                        } else {
+                            // If parsing fails, append default time
+                            $payment_realization_datetime = $payment_date . ' 00:00:00';
+                        }
+                    } else {
+                        // Fallback: append default time if current_datetime is invalid
+                        $payment_realization_datetime = $payment_date . ' 00:00:00';
+                    }
                 } elseif (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $payment_date)) {
-                    // If it's already a valid datetime format (YYYY-MM-DD HH:mm:ss), use it as-is
-                    $payment_realization_datetime = $payment_date;
+                    // If it's already a valid datetime format, normalize it through strtotime + wp_date
+                    // This ensures timezone consistency even if the input came from a different timezone
+                    $timestamp = strtotime($payment_date);
+                    if ($timestamp !== false) {
+                        $payment_realization_datetime = wp_date('Y-m-d H:i:s', $timestamp);
+                    } else {
+                        // If strtotime fails for some reason, use as-is as last resort
+                        $payment_realization_datetime = $payment_date;
+                    }
                 } else {
                     // Invalid format - validate and convert via strtotime
                     $timestamp = strtotime($payment_date);
