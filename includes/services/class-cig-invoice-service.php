@@ -209,9 +209,43 @@ class CIG_Invoice_Service {
         // CORE LOGIC: Update creation date when transitioning from Fictive to Active (Sold/Reserved)
         // Only if invoice hasn't been activated before (activation_date is NULL)
         if ($existing->type === 'fictive' && $invoice_status === 'standard' && empty($existing->activation_date)) {
-            $current_datetime = current_time('mysql');
-            $created_at = $current_datetime; // Update creation date in custom table
-            $activation_date = $current_datetime; // Mark as activated (prevents future updates)
+            // Extract date from payment history instead of using current time
+            // This ensures the invoice date matches the actual payment realization date
+            $payment_realization_datetime = current_time('mysql'); // Default fallback
+            
+            if (!empty($payment_history) && isset($payment_history[0]['date'])) {
+                // Get the date from the first payment entry
+                $payment_date = $payment_history[0]['date'];
+                
+                // If payment_date is just a date (YYYY-MM-DD), append current site time (HH:mm:ss)
+                // to create a valid MySQL DATETIME format
+                if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $payment_date)) {
+                    // Validate that the date is actually valid (not 2024-02-30, etc.)
+                    $timestamp = strtotime($payment_date);
+                    if ($timestamp !== false) {
+                        // Simply use current_time('H:i:s') to get the time portion in site timezone
+                        $time_part = current_time('H:i:s');
+                        $payment_realization_datetime = $payment_date . ' ' . $time_part;
+                    } else {
+                        // Invalid date like 2024-02-30, use current time as fallback
+                        $payment_realization_datetime = current_time('mysql');
+                    }
+                } else {
+                    // For any other format (datetime, unusual format, or invalid), normalize via strtotime + wp_date
+                    // This ensures timezone consistency regardless of input format
+                    $timestamp = strtotime($payment_date);
+                    if ($timestamp !== false) {
+                        // Convert to proper MySQL datetime format using WordPress timezone
+                        $payment_realization_datetime = wp_date('Y-m-d H:i:s', $timestamp);
+                    } else {
+                        // If all parsing fails, use current time as fallback
+                        $payment_realization_datetime = current_time('mysql');
+                    }
+                }
+            }
+            
+            $created_at = $payment_realization_datetime; // Update creation date in custom table
+            $activation_date = $payment_realization_datetime; // Mark as activated (prevents future updates)
             $update_post_date = true; // Also update WordPress post_date
         }
         
