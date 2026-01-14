@@ -253,8 +253,8 @@ class CIG_Ajax_Dashboard {
                     'type'    => 'DATETIME'
                 ],
                 [
-                    'relation' => 'AND',
-                    ['key' => '_cig_activation_date', 'compare' => 'NOT EXISTS'],
+                    'key' => '_cig_activation_date',
+                    'compare' => 'NOT EXISTS'
                 ]
             ];
             

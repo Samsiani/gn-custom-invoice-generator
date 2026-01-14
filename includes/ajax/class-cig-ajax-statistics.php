@@ -54,8 +54,8 @@ class CIG_Ajax_Statistics {
                 'type'    => 'DATETIME'
             ],
             [
-                'relation' => 'AND',
-                ['key' => '_cig_activation_date', 'compare' => 'NOT EXISTS'],
+                'key' => '_cig_activation_date',
+                'compare' => 'NOT EXISTS'
             ]
         ];
         
@@ -147,8 +147,8 @@ class CIG_Ajax_Statistics {
                     'type'    => 'DATETIME'
                 ],
                 [
-                    'relation' => 'AND',
-                    ['key' => '_cig_activation_date', 'compare' => 'NOT EXISTS'],
+                    'key' => '_cig_activation_date',
+                    'compare' => 'NOT EXISTS'
                 ]
             ];
             
@@ -232,8 +232,8 @@ class CIG_Ajax_Statistics {
                 'type'    => 'DATETIME'
             ],
             [
-                'relation' => 'AND',
-                ['key' => '_cig_activation_date', 'compare' => 'NOT EXISTS'],
+                'key' => '_cig_activation_date',
+                'compare' => 'NOT EXISTS'
             ]
         ];
         
@@ -347,8 +347,8 @@ class CIG_Ajax_Statistics {
                     'type'    => 'DATETIME'
                 ],
                 [
-                    'relation' => 'AND',
-                    ['key' => '_cig_activation_date', 'compare' => 'NOT EXISTS'],
+                    'key' => '_cig_activation_date',
+                    'compare' => 'NOT EXISTS'
                 ]
             ];
             
