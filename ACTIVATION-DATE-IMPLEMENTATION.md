@@ -101,11 +101,11 @@ if ($existing->type === 'standard' && $invoice_status === 'fictive') {
 // Only set activation_date if it's provided (i.e., this is a Fictive→Standard transition)
 if (!empty($activation_date)) {
     update_post_meta($post_id, '_cig_activation_date', $activation_date);
-} else if ($status === 'fictive') {
-    // If status is fictive, clear any existing activation_date
+} elseif ($status === 'fictive') {
+    // Clear activation_date when reverting to fictive status
     delete_post_meta($post_id, '_cig_activation_date');
 }
-// Note: For invoices created directly as Standard, we don't set activation_date
+// Note: Invoices created directly as Standard use created_at for statistics via COALESCE fallback in queries
 ```
 
 **Behavior:**
