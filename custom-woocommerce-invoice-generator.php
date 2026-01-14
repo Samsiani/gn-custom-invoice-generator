@@ -206,6 +206,17 @@ final class CIG_Invoice_Generator {
 
         // v5.0.0 Infrastructure
         $this->database      = new CIG_Database();
+        
+        // Run schema migrations if needed (for existing installations)
+        // This is a one-time check that uses option caching, so it's lightweight
+        add_action('admin_init', function() {
+            // Only run if version is outdated
+            $current_version = get_option('cig_db_version', '0.0.0');
+            if (version_compare($current_version, '5.0.0', '<')) {
+                $this->database->maybe_migrate_schema();
+            }
+        }, 5);
+        
         $this->invoice_repo  = new CIG_Invoice_Repository($this->database, $this->logger, $this->cache);
         $this->items_repo    = new CIG_Invoice_Items_Repository($this->database, $this->logger, $this->cache);
         $this->payment_repo  = new CIG_Payment_Repository($this->database, $this->logger, $this->cache);
@@ -256,10 +267,11 @@ final class CIG_Invoice_Generator {
      * Activation routine
      */
     public function activate() {
-        // Create custom database tables
+        // Create custom database tables and run migrations
         require_once CIG_INCLUDES_DIR . 'database/class-cig-database.php';
         $database = new CIG_Database();
         $database->create_tables();
+        $database->maybe_migrate_schema();
 
         if (!wp_next_scheduled('cig_check_expired_reservations')) {
             wp_schedule_event(time(), 'hourly', 'cig_check_expired_reservations');
