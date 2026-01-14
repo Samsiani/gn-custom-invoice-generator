@@ -200,8 +200,7 @@ class CIG_Ajax_Dashboard {
             'posts_per_page' => 20,
             'paged'          => $paged,
             'fields'         => 'ids', 
-            'orderby'        => 'meta_value',
-            'meta_key'       => '_cig_activation_date',
+            'orderby'        => 'date',
             'order'          => 'DESC',
             'meta_query'     => [
                 ['relation' => 'OR', ['key' => '_cig_invoice_status', 'value' => 'standard', 'compare' => '='], ['key' => '_cig_invoice_status', 'compare' => 'NOT EXISTS']],
@@ -242,22 +241,8 @@ class CIG_Ajax_Dashboard {
 
         // 3. Date & Search
         if ($date_from && $date_to) {
-            // For date filtering, we need to handle activation_date with fallback
-            // We'll add an OR condition to check both activation_date and post_date
-            $args['meta_query'][] = [
-                'relation' => 'OR',
-                [
-                    'key'     => '_cig_activation_date',
-                    'value'   => [$date_from . ' 00:00:00', $date_to . ' 23:59:59'],
-                    'compare' => 'BETWEEN',
-                    'type'    => 'DATETIME'
-                ],
-                [
-                    'key' => '_cig_activation_date',
-                    'compare' => 'NOT EXISTS'
-                ]
-            ];
-            
+            // Date filtering will be done post-query using activation_date with fallback
+            // We still use date_query to reduce the initial result set
             $args['date_query'] = [[
                 'after'     => $date_from . ' 00:00:00',
                 'before'    => $date_to   . ' 23:59:59',
@@ -275,6 +260,35 @@ class CIG_Ajax_Dashboard {
 
         $query = new WP_Query($args);
         
+        // Post-process for date filtering with activation_date fallback and sorting
+        $invoice_data = [];
+        foreach ($query->posts as $id) {
+            $activation_date = get_post_meta($id, '_cig_activation_date', true);
+            $effective_date = $activation_date ?: get_post_field('post_date', $id);
+            
+            // Re-check date filter using effective date (activation_date with fallback)
+            if ($date_from && $date_to) {
+                $ts = strtotime($effective_date);
+                $start_ts = strtotime($date_from . ' 00:00:00');
+                $end_ts = strtotime($date_to . ' 23:59:59');
+                
+                if ($ts < $start_ts || $ts > $end_ts) {
+                    continue; // Skip this invoice
+                }
+            }
+            
+            $invoice_data[] = [
+                'id' => $id,
+                'effective_date' => $effective_date,
+                'sort_timestamp' => strtotime($effective_date)
+            ];
+        }
+        
+        // Sort by effective date (activation_date with fallback) descending
+        usort($invoice_data, function($a, $b) {
+            return $b['sort_timestamp'] - $a['sort_timestamp'];
+        });
+        
         $method_labels = [
             'company_transfer' => 'კომპანია',
             'cash'             => 'ქეში',
@@ -285,16 +299,16 @@ class CIG_Ajax_Dashboard {
         ];
 
         $invoices = [];
-        foreach ($query->posts as $id) {
+        foreach ($invoice_data as $inv_data) {
+            $id = $inv_data['id'];
             $status = get_post_meta($id, '_cig_acc_status', true); 
 
             $buyer_name  = get_post_meta($id, '_cig_buyer_name', true) ?: '—';
             $buyer_tax   = get_post_meta($id, '_cig_buyer_tax_id', true);
             $total       = get_post_meta($id, '_cig_invoice_total', true);
             
-            // Use activation_date with fallback to post_date for display
-            $activation_date = get_post_meta($id, '_cig_activation_date', true);
-            $date = $activation_date ?: get_post_field('post_date', $id);
+            // Use the effective_date we already calculated
+            $date = $inv_data['effective_date'];
             
             $is_partial  = get_post_meta($id, '_cig_payment_is_partial', true) === 'yes';
             

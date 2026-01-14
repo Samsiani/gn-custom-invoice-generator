@@ -37,43 +37,37 @@ class CIG_Ajax_Statistics {
 
     public function get_statistics_summary() {
     $this->security->verify_ajax_request('cig_nonce', 'nonce', 'edit_posts');
+    
+    $date_from = !empty($_POST['date_from']) ? sanitize_text_field($_POST['date_from']) : '';
+    $date_to = !empty($_POST['date_to']) ? sanitize_text_field($_POST['date_to']) : '';
+    $status = sanitize_text_field($_POST['status'] ?? 'standard');
+    
+    // Get all invoices matching status
     $args = ['post_type' => 'invoice', 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids'];
+    $mq = $this->get_status_meta_query($status);
+    if ($mq) $args['meta_query'] = $mq;
     
-    // Handle date filtering with activation_date
-    if (!empty($_POST['date_from']) && !empty($_POST['date_to'])) {
-        $date_from = sanitize_text_field($_POST['date_from']);
-        $date_to = sanitize_text_field($_POST['date_to']);
-        
-        // Use activation_date with fallback to post_date
-        $args['meta_query'] = [
-            'relation' => 'OR',
-            [
-                'key'     => '_cig_activation_date',
-                'value'   => [$date_from . ' 00:00:00', $date_to . ' 23:59:59'],
-                'compare' => 'BETWEEN',
-                'type'    => 'DATETIME'
-            ],
-            [
-                'key' => '_cig_activation_date',
-                'compare' => 'NOT EXISTS'
-            ]
-        ];
-        
-        // Also apply date_query for posts without activation_date
-        $args['date_query'] = [['after' => $date_from.' 00:00:00', 'before' => $date_to.' 23:59:59', 'inclusive' => true]];
-    }
-    
-    $mq = $this->get_status_meta_query(sanitize_text_field($_POST['status'] ?? 'standard'));
-    if ($mq) {
-        if (isset($args['meta_query'])) {
-            $args['meta_query'] = ['relation' => 'AND', $args['meta_query'], $mq];
-        } else {
-            $args['meta_query'] = $mq;
-        }
-    }
-
     $query = new WP_Query($args);
-    $ids = $query->posts;
+    $all_ids = $query->posts;
+    
+    // Filter by date if provided (using activation_date with fallback to post_date)
+    $ids = [];
+    if ($date_from && $date_to) {
+        $start_ts = strtotime($date_from . ' 00:00:00');
+        $end_ts = strtotime($date_to . ' 23:59:59');
+        
+        foreach ($all_ids as $id) {
+            $activation_date = get_post_meta($id, '_cig_activation_date', true);
+            $effective_date = $activation_date ?: get_post_field('post_date', $id);
+            $ts = strtotime($effective_date);
+            
+            if ($ts >= $start_ts && $ts <= $end_ts) {
+                $ids[] = $id;
+            }
+        }
+    } else {
+        $ids = $all_ids;
+    }
 
     // დავამატეთ 'total_reserved_invoices' მასივში
     $stats = [
@@ -131,41 +125,40 @@ class CIG_Ajax_Statistics {
 
     public function get_users_statistics() {
         $this->security->verify_ajax_request('cig_nonce', 'nonce', 'edit_posts');
+        
+        $date_from = !empty($_POST['date_from']) ? sanitize_text_field($_POST['date_from']) : '';
+        $date_to = !empty($_POST['date_to']) ? sanitize_text_field($_POST['date_to']) : '';
+        $status = sanitize_text_field($_POST['status'] ?? 'standard');
+        
+        // Get all invoices matching status
         $args = ['post_type' => 'invoice', 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids'];
+        $mq = $this->get_status_meta_query($status);
+        if ($mq) $args['meta_query'] = $mq;
         
-        // Handle date filtering with activation_date
-        if (!empty($_POST['date_from'])) {
-            $date_from = sanitize_text_field($_POST['date_from']);
-            $date_to = sanitize_text_field($_POST['date_to']);
-            
-            $args['meta_query'] = [
-                'relation' => 'OR',
-                [
-                    'key'     => '_cig_activation_date',
-                    'value'   => [$date_from . ' 00:00:00', $date_to . ' 23:59:59'],
-                    'compare' => 'BETWEEN',
-                    'type'    => 'DATETIME'
-                ],
-                [
-                    'key' => '_cig_activation_date',
-                    'compare' => 'NOT EXISTS'
-                ]
-            ];
-            
-            $args['date_query'] = [['after' => $date_from.' 00:00:00', 'before' => $date_to.' 23:59:59', 'inclusive' => true]];
-        }
+        $query = new WP_Query($args);
+        $all_ids = $query->posts;
         
-        $mq = $this->get_status_meta_query(sanitize_text_field($_POST['status'] ?? 'standard'));
-        if ($mq) {
-            if (isset($args['meta_query'])) {
-                $args['meta_query'] = ['relation' => 'AND', $args['meta_query'], $mq];
-            } else {
-                $args['meta_query'] = $mq;
+        // Filter by date if provided (using activation_date with fallback to post_date)
+        $ids = [];
+        if ($date_from && $date_to) {
+            $start_ts = strtotime($date_from . ' 00:00:00');
+            $end_ts = strtotime($date_to . ' 23:59:59');
+            
+            foreach ($all_ids as $id) {
+                $activation_date = get_post_meta($id, '_cig_activation_date', true);
+                $effective_date = $activation_date ?: get_post_field('post_date', $id);
+                $ts = strtotime($effective_date);
+                
+                if ($ts >= $start_ts && $ts <= $end_ts) {
+                    $ids[] = $id;
+                }
             }
+        } else {
+            $ids = $all_ids;
         }
         
         $users = [];
-        foreach ((new WP_Query($args))->posts as $id) {
+        foreach ($ids as $id) {
             $uid = get_post_field('post_author', $id);
             if (!isset($users[$uid])) {
                 $u = get_userdata($uid); if(!$u) continue;
@@ -216,37 +209,33 @@ class CIG_Ajax_Statistics {
     
     $status = sanitize_text_field($_POST['status'] ?? 'standard');
     $mf = sanitize_text_field($_POST['payment_method'] ?? '');
+    $date_from = !empty($_POST['date_from']) ? sanitize_text_field($_POST['date_from']) : '';
+    $date_to = !empty($_POST['date_to']) ? sanitize_text_field($_POST['date_to']) : '';
+    
+    // Get all invoices matching status
     $args = ['post_type'=>'invoice', 'post_status'=>'publish', 'posts_per_page'=>200, 'orderby'=>'date', 'order'=>'DESC'];
-    
-    // Handle date filtering with activation_date
-    if (!empty($_POST['date_from'])) {
-        $date_from = sanitize_text_field($_POST['date_from']);
-        $date_to = sanitize_text_field($_POST['date_to']);
-        
-        $args['meta_query'] = [
-            'relation' => 'OR',
-            [
-                'key'     => '_cig_activation_date',
-                'value'   => [$date_from . ' 00:00:00', $date_to . ' 23:59:59'],
-                'compare' => 'BETWEEN',
-                'type'    => 'DATETIME'
-            ],
-            [
-                'key' => '_cig_activation_date',
-                'compare' => 'NOT EXISTS'
-            ]
-        ];
-        
-        $args['date_query'] = [['after'=>$date_from.' 00:00:00', 'before'=>$date_to.' 23:59:59', 'inclusive'=>true]];
-    }
-    
     $mq = $this->get_status_meta_query($status); 
-    if($mq) {
-        if (isset($args['meta_query'])) {
-            $args['meta_query'] = ['relation' => 'AND', $args['meta_query'], $mq];
-        } else {
-            $args['meta_query'] = $mq;
+    if($mq) $args['meta_query'] = $mq;
+    
+    $query = new WP_Query($args);
+    $posts = $query->posts;
+    
+    // Filter by date if provided (using activation_date with fallback to post_date)
+    if ($date_from && $date_to) {
+        $start_ts = strtotime($date_from . ' 00:00:00');
+        $end_ts = strtotime($date_to . ' 23:59:59');
+        
+        $filtered_posts = [];
+        foreach ($posts as $p) {
+            $activation_date = get_post_meta($p->ID, '_cig_activation_date', true);
+            $effective_date = $activation_date ?: $p->post_date;
+            $ts = strtotime($effective_date);
+            
+            if ($ts >= $start_ts && $ts <= $end_ts) {
+                $filtered_posts[] = $p;
+            }
         }
+        $posts = $filtered_posts;
     }
     
     $method_labels = [
@@ -258,7 +247,7 @@ class CIG_Ajax_Statistics {
     ];
     
     $rows=[];
-    foreach((new WP_Query($args))->posts as $p) {
+    foreach($posts as $p) {
         $id=$p->ID;
         
         // --- ახალი ლოგიკა: რეზერვაციის შემოწმება ---
@@ -331,42 +320,41 @@ class CIG_Ajax_Statistics {
 
     public function get_products_by_filters() {
         $this->security->verify_ajax_request('cig_nonce', 'nonce', 'edit_posts');
+        
+        $date_from = !empty($_POST['date_from']) ? sanitize_text_field($_POST['date_from']) : '';
+        $date_to = !empty($_POST['date_to']) ? sanitize_text_field($_POST['date_to']) : '';
+        $invoice_status = sanitize_text_field($_POST['invoice_status'] ?? 'standard');
+        
+        // Get all invoices matching status
         $args = ['post_type'=>'invoice', 'post_status'=>'publish', 'posts_per_page'=>-1, 'fields'=>'ids', 'orderby'=>'date', 'order'=>'DESC'];
-        
-        // Handle date filtering with activation_date
-        if (!empty($_POST['date_from'])) {
-            $date_from = sanitize_text_field($_POST['date_from']);
-            $date_to = sanitize_text_field($_POST['date_to']);
-            
-            $args['meta_query'] = [
-                'relation' => 'OR',
-                [
-                    'key'     => '_cig_activation_date',
-                    'value'   => [$date_from . ' 00:00:00', $date_to . ' 23:59:59'],
-                    'compare' => 'BETWEEN',
-                    'type'    => 'DATETIME'
-                ],
-                [
-                    'key' => '_cig_activation_date',
-                    'compare' => 'NOT EXISTS'
-                ]
-            ];
-            
-            $args['date_query'] = [['after'=>$date_from.' 00:00:00', 'before'=>$date_to.' 23:59:59', 'inclusive'=>true]];
-        }
-        
-        $mq = $this->get_status_meta_query($_POST['invoice_status']??'standard');
+        $mq = $this->get_status_meta_query($invoice_status);
         if(!empty($_POST['payment_method']) && $_POST['payment_method']!=='all') $mq[]=['key'=>'_cig_payment_type', 'value'=>$_POST['payment_method'], 'compare'=>'='];
-        if($mq) {
-            if (isset($args['meta_query'])) {
-                $args['meta_query'] = ['relation' => 'AND', $args['meta_query'], $mq];
-            } else {
-                $args['meta_query'] = $mq;
+        if($mq) $args['meta_query'] = $mq;
+        
+        $query = new WP_Query($args);
+        $all_ids = $query->posts;
+        
+        // Filter by date if provided (using activation_date with fallback to post_date)
+        $ids = [];
+        if ($date_from && $date_to) {
+            $start_ts = strtotime($date_from . ' 00:00:00');
+            $end_ts = strtotime($date_to . ' 23:59:59');
+            
+            foreach ($all_ids as $id) {
+                $activation_date = get_post_meta($id, '_cig_activation_date', true);
+                $effective_date = $activation_date ?: get_post_field('post_date', $id);
+                $ts = strtotime($effective_date);
+                
+                if ($ts >= $start_ts && $ts <= $end_ts) {
+                    $ids[] = $id;
+                }
             }
+        } else {
+            $ids = $all_ids;
         }
         
         $rows=[]; $st=sanitize_text_field($_POST['status']??'sold');
-        foreach((new WP_Query($args))->posts as $id) {
+        foreach($ids as $id) {
             foreach(get_post_meta($id,'_cig_items',true)?:[] as $it) {
                 if(strtolower($it['status']??'sold')!==$st) continue;
                 

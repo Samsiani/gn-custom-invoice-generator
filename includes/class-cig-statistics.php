@@ -162,33 +162,6 @@ class CIG_Statistics {
             'fields'         => 'ids'
         ];
 
-        // Use activation_date with fallback to post_date for filtering
-        if ($date_from && $date_to) {
-            // We need to use meta_query to check activation_date, with fallback to post_date
-            // For posts with activation_date, use it; otherwise use post_date
-            $args['date_query'] = [[
-                'after'     => $date_from . ' 00:00:00',
-                'before'    => $date_to   . ' 23:59:59',
-                'inclusive' => true,
-                'column'    => 'post_date' // This will be used for posts without activation_date
-            ]];
-            
-            // Add meta query to also check activation_date
-            $args['meta_query'] = [
-                'relation' => 'OR',
-                [
-                    'key'     => '_cig_activation_date',
-                    'value'   => [$date_from . ' 00:00:00', $date_to . ' 23:59:59'],
-                    'compare' => 'BETWEEN',
-                    'type'    => 'DATETIME'
-                ],
-                [
-                    'key'     => '_cig_activation_date',
-                    'compare' => 'NOT EXISTS'
-                ]
-            ];
-        }
-
         // Status Filter Logic
         $meta_query = [];
         if ($status === 'fictive') {
@@ -206,20 +179,30 @@ class CIG_Statistics {
         }
 
         if (!empty($meta_query)) {
-            if (isset($args['meta_query'])) {
-                // Merge with existing meta_query
-                $args['meta_query'] = [
-                    'relation' => 'AND',
-                    $args['meta_query'],
-                    $meta_query
-                ];
-            } else {
-                $args['meta_query'] = $meta_query;
-            }
+            $args['meta_query'] = $meta_query;
         }
 
         $query = new WP_Query($args);
-        $invoice_ids = $query->posts;
+        $all_invoice_ids = $query->posts;
+        
+        // Filter by date using activation_date with fallback to post_date
+        $invoice_ids = [];
+        if ($date_from && $date_to) {
+            $start_ts = strtotime($date_from . ' 00:00:00');
+            $end_ts = strtotime($date_to . ' 23:59:59');
+            
+            foreach ($all_invoice_ids as $invoice_id) {
+                $activation_date = get_post_meta($invoice_id, '_cig_activation_date', true);
+                $effective_date = $activation_date ?: get_post_field('post_date', $invoice_id);
+                $ts = strtotime($effective_date);
+                
+                if ($ts >= $start_ts && $ts <= $end_ts) {
+                    $invoice_ids[] = $invoice_id;
+                }
+            }
+        } else {
+            $invoice_ids = $all_invoice_ids;
+        }
 
         // Collect user statistics
         $users_data = [];
