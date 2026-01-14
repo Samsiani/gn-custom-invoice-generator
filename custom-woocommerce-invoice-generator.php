@@ -2,8 +2,8 @@
 /**
  * Plugin Name: Custom WooCommerce Invoice Generator
  * Plugin URI: https://example.com/invoice-generator
- * Description: Professional invoice generator with advanced stock reservation, real-time validation, and comprehensive analytics.
- * Version: 3.6.0
+ * Description: Professional invoice generator with advanced stock reservation, real-time validation, and comprehensive analytics. v5.0.0 features high-performance custom database tables and Service-Oriented Architecture.
+ * Version: 5.0.0
  * Author: Samsiani
  * Author URI: https://example.com
  * Text Domain: cig
@@ -16,7 +16,7 @@
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  *
  * @package CIG
- * @since 3.5.0
+ * @since 5.0.0
  */
 
 if (!defined('ABSPATH')) {
@@ -39,7 +39,7 @@ add_action('before_woocommerce_init', function() {
 /**
  * Plugin constants
  */
-define('CIG_VERSION', '3.6.0'); // Version bumped slightly for the new feature
+define('CIG_VERSION', '5.0.0'); // Major version: Custom tables + SOA architecture
 define('CIG_PLUGIN_FILE', __FILE__);
 define('CIG_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('CIG_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -70,6 +70,14 @@ final class CIG_Invoice_Generator {
     public $cache;
     public $validator;
     public $security;
+
+    // v5.0.0 Infrastructure
+    public $database;
+    public $invoice_repo;
+    public $items_repo;
+    public $payment_repo;
+    public $invoice_service;
+    public $migrator;
 
     // Components
     public $core;
@@ -137,6 +145,19 @@ final class CIG_Invoice_Generator {
         require_once CIG_INCLUDES_DIR . 'class-cig-validator.php';
         require_once CIG_INCLUDES_DIR . 'class-cig-security.php';
 
+        // v5.0.0 Infrastructure
+        require_once CIG_INCLUDES_DIR . 'database/class-cig-database.php';
+        require_once CIG_INCLUDES_DIR . 'dto/class-cig-invoice-dto.php';
+        require_once CIG_INCLUDES_DIR . 'dto/class-cig-invoice-item-dto.php';
+        require_once CIG_INCLUDES_DIR . 'dto/class-cig-payment-dto.php';
+        require_once CIG_INCLUDES_DIR . 'dto/class-cig-customer-dto.php';
+        require_once CIG_INCLUDES_DIR . 'repositories/abstract-cig-repository.php';
+        require_once CIG_INCLUDES_DIR . 'repositories/class-cig-invoice-repository.php';
+        require_once CIG_INCLUDES_DIR . 'repositories/class-cig-invoice-items-repository.php';
+        require_once CIG_INCLUDES_DIR . 'repositories/class-cig-payment-repository.php';
+        require_once CIG_INCLUDES_DIR . 'services/class-cig-invoice-service.php';
+        require_once CIG_INCLUDES_DIR . 'migration/class-cig-migrator.php';
+
         // Core classes
         require_once CIG_INCLUDES_DIR . 'class-cig-core.php';
         require_once CIG_INCLUDES_DIR . 'class-cig-invoice.php';
@@ -158,6 +179,9 @@ final class CIG_Invoice_Generator {
         
         // Load User Restrictions
         require_once CIG_INCLUDES_DIR . 'class-cig-user-restrictions.php';
+        
+        // Load Migration Admin
+        require_once CIG_INCLUDES_DIR . 'admin/class-cig-migration-admin.php';
     }
 
     /**
@@ -179,6 +203,27 @@ final class CIG_Invoice_Generator {
         $this->cache     = new CIG_Cache();
         $this->validator = new CIG_Validator();
         $this->security  = new CIG_Security();
+
+        // v5.0.0 Infrastructure
+        $this->database      = new CIG_Database();
+        $this->invoice_repo  = new CIG_Invoice_Repository($this->database, $this->logger, $this->cache);
+        $this->items_repo    = new CIG_Invoice_Items_Repository($this->database, $this->logger, $this->cache);
+        $this->payment_repo  = new CIG_Payment_Repository($this->database, $this->logger, $this->cache);
+        $this->invoice_service = new CIG_Invoice_Service(
+            $this->invoice_repo,
+            $this->items_repo,
+            $this->payment_repo,
+            null, // stock manager set later
+            $this->validator,
+            $this->logger
+        );
+        $this->migrator = new CIG_Migrator(
+            $this->database,
+            $this->invoice_repo,
+            $this->items_repo,
+            $this->payment_repo,
+            $this->logger
+        );
 
         // Core components
         $this->core      = new CIG_Core($this->logger, $this->cache);
@@ -202,12 +247,20 @@ final class CIG_Invoice_Generator {
         
         // Init User Restrictions
         $this->user_restrictions = new CIG_User_Restrictions();
+        
+        // Init Migration Admin
+        new CIG_Migration_Admin($this->migrator, $this->security);
     }
 
     /**
      * Activation routine
      */
     public function activate() {
+        // Create custom database tables
+        require_once CIG_INCLUDES_DIR . 'database/class-cig-database.php';
+        $database = new CIG_Database();
+        $database->create_tables();
+
         if (!wp_next_scheduled('cig_check_expired_reservations')) {
             wp_schedule_event(time(), 'hourly', 'cig_check_expired_reservations');
         }
