@@ -209,9 +209,30 @@ class CIG_Invoice_Service {
         // CORE LOGIC: Update creation date when transitioning from Fictive to Active (Sold/Reserved)
         // Only if invoice hasn't been activated before (activation_date is NULL)
         if ($existing->type === 'fictive' && $invoice_status === 'standard' && empty($existing->activation_date)) {
-            $current_datetime = current_time('mysql');
-            $created_at = $current_datetime; // Update creation date in custom table
-            $activation_date = $current_datetime; // Mark as activated (prevents future updates)
+            // Extract date from payment history instead of using current time
+            // This ensures the invoice date matches the actual payment realization date
+            $payment_realization_datetime = current_time('mysql'); // Default fallback
+            
+            if (!empty($payment_history) && isset($payment_history[0]['date'])) {
+                // Get the date from the first payment entry
+                $payment_date = $payment_history[0]['date'];
+                
+                // If payment_date is just a date (YYYY-MM-DD), append current site time (HH:mm:ss)
+                // to create a valid MySQL DATETIME format
+                if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $payment_date)) {
+                    // Extract just the time portion from current site time (already in site timezone)
+                    $current_datetime = current_time('mysql');
+                    // Parse the time using WordPress timezone-aware method
+                    $time_part = substr($current_datetime, 11); // Extract 'HH:mm:ss' from 'YYYY-MM-DD HH:mm:ss'
+                    $payment_realization_datetime = $payment_date . ' ' . $time_part;
+                } else {
+                    // If it's already a datetime or something else, use it as-is
+                    $payment_realization_datetime = $payment_date;
+                }
+            }
+            
+            $created_at = $payment_realization_datetime; // Update creation date in custom table
+            $activation_date = $payment_realization_datetime; // Mark as activated (prevents future updates)
             $update_post_date = true; // Also update WordPress post_date
         }
         

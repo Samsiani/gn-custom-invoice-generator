@@ -86,11 +86,14 @@ class CIG_Ajax_Dashboard {
         }
 
         if ($filter === 'today') {
-            $args['date_query'] = [['after' => date('Y-m-d 00:00:00'), 'inclusive' => true]];
+            $today_start = current_time('Y-m-d') . ' 00:00:00';
+            $args['date_query'] = [['after' => $today_start, 'inclusive' => true]];
         } elseif ($filter === 'this_week') {
-            $args['date_query'] = [['after' => date('Y-m-d 00:00:00', strtotime('monday this week')), 'inclusive' => true]];
+            $week_start = date('Y-m-d', strtotime('monday this week', current_time('timestamp'))) . ' 00:00:00';
+            $args['date_query'] = [['after' => $week_start, 'inclusive' => true]];
         } elseif ($filter === 'this_month') {
-            $args['date_query'] = [['after' => date('Y-m-01 00:00:00'), 'inclusive' => true]];
+            $month_start = current_time('Y-m') . '-01 00:00:00';
+            $args['date_query'] = [['after' => $month_start, 'inclusive' => true]];
         }
         
         $query = new WP_Query($args);
@@ -194,7 +197,7 @@ class CIG_Ajax_Dashboard {
                         'product_name' => $it['name'] ?? 'Unknown',
                         'product_sku' => $it['sku'] ?? '',
                         'quantity' => floatval($it['qty'] ?? 0),
-                        'expires_date' => date('Y-m-d H:i:s', $exp),
+                        'expires_date' => gmdate('Y-m-d H:i:s', $exp + (get_option('gmt_offset') * HOUR_IN_SECONDS)),
                         'days_left' => ceil(($exp - $now) / DAY_IN_SECONDS),
                         'edit_url' => add_query_arg('edit', '1', get_permalink($id))
                     ];
@@ -379,7 +382,7 @@ class CIG_Ajax_Dashboard {
             $invoices[] = [
                 'id'          => $id,
                 'number'      => get_post_meta($id, '_cig_invoice_number', true),
-                'date'        => date('Y-m-d', strtotime($date)),
+                'date'        => gmdate('Y-m-d', strtotime($date) + (get_option('gmt_offset') * HOUR_IN_SECONDS)),
                 'total'       => number_format((float)$total, 2) . ' ₾',
                 'client_name' => $buyer_name,
                 'client_tax'  => $buyer_tax,
