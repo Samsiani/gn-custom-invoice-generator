@@ -116,6 +116,9 @@ class CIG_Payment_Repository extends Abstract_CIG_Repository {
 
         $table = $this->get_table('payments');
         $data = $payment->to_array(false);
+        
+        // Remove invoice_id from update data - it's an immutable foreign key reference
+        unset($data['invoice_id']);
 
         $result = $this->wpdb->update(
             $table,
