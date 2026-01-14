@@ -220,9 +220,16 @@ class CIG_Invoice_Service {
                 // If payment_date is just a date (YYYY-MM-DD), append current site time (HH:mm:ss)
                 // to create a valid MySQL DATETIME format
                 if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $payment_date)) {
-                    // Simply use current_time('H:i:s') to get the time portion in site timezone
-                    $time_part = current_time('H:i:s');
-                    $payment_realization_datetime = $payment_date . ' ' . $time_part;
+                    // Validate that the date is actually valid (not 2024-02-30, etc.)
+                    $timestamp = strtotime($payment_date);
+                    if ($timestamp !== false) {
+                        // Simply use current_time('H:i:s') to get the time portion in site timezone
+                        $time_part = current_time('H:i:s');
+                        $payment_realization_datetime = $payment_date . ' ' . $time_part;
+                    } else {
+                        // Invalid date like 2024-02-30, use current time as fallback
+                        $payment_realization_datetime = current_time('mysql');
+                    }
                 } else {
                     // For any other format (datetime, unusual format, or invalid), normalize via strtotime + wp_date
                     // This ensures timezone consistency regardless of input format
