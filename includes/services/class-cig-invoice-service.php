@@ -454,7 +454,7 @@ class CIG_Invoice_Service {
         // Only set activation_date if it's provided (i.e., this is a Fictive→Standard transition)
         if (!empty($activation_date)) {
             update_post_meta($post_id, '_cig_activation_date', $activation_date);
-        } else if ($status === 'fictive') {
+        } elseif ($status === 'fictive') {
             // If status is fictive, clear any existing activation_date
             delete_post_meta($post_id, '_cig_activation_date');
         }
