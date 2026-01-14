@@ -80,9 +80,9 @@ class CIG_Invoice_Service {
         // Determine invoice status based on payment
         $invoice_status = $paid_amount > 0 ? 'standard' : 'fictive';
         
-        // Do NOT set activation_date for invoices created directly as Standard
-        // activation_date should ONLY be set when a Fictive invoice transitions to Standard
-        // Invoices "born" active should be categorized by their created_at date
+        // Track if invoice was created as Active (standard/proforma) from the beginning
+        // We use activation_date as a flag: NULL means either "created as Active" or "not yet activated"
+        // This distinction is important for the update logic
         $activation_date = null;
         
         // Create post first
@@ -201,15 +201,22 @@ class CIG_Invoice_Service {
         // Determine invoice status
         $invoice_status = $paid_amount > 0 ? 'standard' : 'fictive';
         
-        // Handle activation_date logic
-        $activation_date = $existing->activation_date; // Preserve existing activation_date by default
+        // Handle creation date update logic
+        $activation_date = $existing->activation_date; // Track if already activated
+        $created_at = $existing->created_at; // Default: preserve creation date
+        $update_post_date = false; // Flag to update WordPress post_date
         
-        // If transitioning from fictive to standard, set activation_date
+        // CORE LOGIC: Update creation date when transitioning from Fictive to Active (Sold/Reserved)
+        // Only if invoice hasn't been activated before (activation_date is NULL)
         if ($existing->type === 'fictive' && $invoice_status === 'standard' && empty($existing->activation_date)) {
-            $activation_date = current_time('mysql');
+            $current_datetime = current_time('mysql');
+            $created_at = $current_datetime; // Update creation date in custom table
+            $activation_date = $current_datetime; // Mark as activated (prevents future updates)
+            $update_post_date = true; // Also update WordPress post_date
         }
         
-        // If reverting from standard to fictive, clear activation_date
+        // If reverting from standard to fictive, clear activation flag
+        // Note: We do NOT restore the original creation date as it may have been intentionally changed
         if ($existing->type === 'standard' && $invoice_status === 'fictive') {
             $activation_date = null;
         }
@@ -239,7 +246,7 @@ class CIG_Invoice_Service {
             'balance' => $totals['total'] - $paid_amount,
             'general_note' => $general_note,
             'author_id' => $existing->author_id,
-            'created_at' => $existing->created_at,
+            'created_at' => $created_at,
             'updated_at' => current_time('mysql'),
             'activation_date' => $activation_date,
         ]);
@@ -249,6 +256,17 @@ class CIG_Invoice_Service {
         
         if (!$result) {
             return false;
+        }
+        
+        // Update WordPress post_date if invoice was activated
+        if ($update_post_date && $existing->old_post_id) {
+            wp_update_post([
+                'ID' => $existing->old_post_id,
+                'post_date' => $created_at,
+                'post_date_gmt' => get_gmt_from_date($created_at),
+                'post_modified' => current_time('mysql'),
+                'post_modified_gmt' => current_time('mysql', true),
+            ]);
         }
 
         // Update items - delete old and insert new
