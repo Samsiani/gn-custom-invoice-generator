@@ -42,12 +42,8 @@ class CIG_Invoice_DTO {
      * @param array|null $data Raw data array
      * @return CIG_Invoice_DTO|null
      */
-    public static function from_array($data) {
-        if ($data === null) {
-            return null;
-        }
-        
-        if (!is_array($data)) {
+    public static function from_array($data = null) {
+        if ($data === null || !is_array($data)) {
             return null;
         }
         
