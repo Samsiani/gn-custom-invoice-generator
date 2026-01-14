@@ -80,11 +80,10 @@ class CIG_Invoice_Service {
         // Determine invoice status based on payment
         $invoice_status = $paid_amount > 0 ? 'standard' : 'fictive';
         
-        // Set activation_date if invoice is being created as Standard (with payment)
+        // Do NOT set activation_date for invoices created directly as Standard
+        // activation_date should ONLY be set when a Fictive invoice transitions to Standard
+        // Invoices "born" active should be categorized by their created_at date
         $activation_date = null;
-        if ($invoice_status === 'standard') {
-            $activation_date = current_time('mysql');
-        }
         
         // Create post first
         $post_id = wp_insert_post([
@@ -160,7 +159,7 @@ class CIG_Invoice_Service {
         }
 
         // Also save to postmeta for backward compatibility
-        $this->save_to_postmeta($post_id, $data, $invoice_status);
+        $this->save_to_postmeta($post_id, $data, $invoice_status, $activation_date);
 
         return $invoice_id;
     }
@@ -262,7 +261,7 @@ class CIG_Invoice_Service {
         }
 
         // Also update postmeta for backward compatibility
-        $this->save_to_postmeta($existing->old_post_id, $data, $invoice_status);
+        $this->save_to_postmeta($existing->old_post_id, $data, $invoice_status, $activation_date);
 
         return true;
     }
@@ -433,8 +432,9 @@ class CIG_Invoice_Service {
      * @param int $post_id Post ID
      * @param array $data Invoice data
      * @param string $status Invoice status
+     * @param string|null $activation_date Activation date (NULL if not activated)
      */
-    private function save_to_postmeta($post_id, $data, $status) {
+    private function save_to_postmeta($post_id, $data, $status, $activation_date = null) {
         $buyer = $data['buyer'] ?? [];
         $items = $data['items'] ?? [];
         $payment = $data['payment'] ?? [];
@@ -451,15 +451,13 @@ class CIG_Invoice_Service {
         update_post_meta($post_id, '_cig_payment_history', $payment['history'] ?? []);
         
         // Save activation_date to postmeta for backward compatibility
-        if ($status === 'standard') {
-            // If this is the first time setting to standard, set activation_date
-            $existing_activation = get_post_meta($post_id, '_cig_activation_date', true);
-            if (empty($existing_activation)) {
-                update_post_meta($post_id, '_cig_activation_date', current_time('mysql'));
-            }
-        } else {
-            // If reverting to fictive, clear activation_date
+        // Only set activation_date if it's provided (i.e., this is a Fictive→Standard transition)
+        if (!empty($activation_date)) {
+            update_post_meta($post_id, '_cig_activation_date', $activation_date);
+        } else if ($status === 'fictive') {
+            // If status is fictive, clear any existing activation_date
             delete_post_meta($post_id, '_cig_activation_date');
         }
+        // Note: For invoices created directly as Standard, we don't set activation_date
     }
 }
