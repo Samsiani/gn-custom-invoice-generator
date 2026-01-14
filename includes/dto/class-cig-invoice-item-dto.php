@@ -17,12 +17,13 @@ class CIG_Invoice_Item_DTO {
     public $product_id;
     public $product_name;
     public $product_sku;
-    public $quantity;
-    public $unit_price;
-    public $line_total;
+    public $qty;  // Changed from quantity to match database
+    public $price;  // Changed from unit_price to match database
+    public $total;  // Changed from line_total to match database
     public $warranty;
     public $item_note;
     public $sort_order;
+    public $reservation_expires_at;  // New field from database
     public $created_at;
 
     /**
@@ -39,17 +40,19 @@ class CIG_Invoice_Item_DTO {
         $dto->product_id = isset($data['product_id']) ? (int)$data['product_id'] : 0;
         $dto->product_name = $data['product_name'] ?? $data['name'] ?? '';
         $dto->product_sku = $data['product_sku'] ?? $data['sku'] ?? '';
-        $dto->quantity = isset($data['quantity']) ? (float)$data['quantity'] : 1.00;
-        $dto->unit_price = isset($data['unit_price']) ? (float)$data['unit_price'] : 0.00;
-        $dto->line_total = isset($data['line_total']) ? (float)$data['line_total'] : 0.00;
+        // Support both old and new column names
+        $dto->qty = isset($data['qty']) ? (float)$data['qty'] : (isset($data['quantity']) ? (float)$data['quantity'] : 1.00);
+        $dto->price = isset($data['price']) ? (float)$data['price'] : (isset($data['unit_price']) ? (float)$data['unit_price'] : 0.00);
+        $dto->total = isset($data['total']) ? (float)$data['total'] : (isset($data['line_total']) ? (float)$data['line_total'] : 0.00);
         $dto->warranty = $data['warranty'] ?? null;
         $dto->item_note = $data['item_note'] ?? $data['note'] ?? '';
         $dto->sort_order = isset($data['sort_order']) ? (int)$data['sort_order'] : 0;
+        $dto->reservation_expires_at = $data['reservation_expires_at'] ?? null;
         $dto->created_at = $data['created_at'] ?? current_time('mysql');
         
-        // Calculate line total if not provided
-        if ($dto->line_total == 0 && $dto->quantity > 0 && $dto->unit_price > 0) {
-            $dto->line_total = $dto->quantity * $dto->unit_price;
+        // Calculate total if not provided
+        if ($dto->total == 0 && $dto->qty > 0 && $dto->price > 0) {
+            $dto->total = $dto->qty * $dto->price;
         }
         
         return $dto;
@@ -67,12 +70,13 @@ class CIG_Invoice_Item_DTO {
             'product_id' => $this->product_id,
             'product_name' => $this->product_name,
             'product_sku' => $this->product_sku,
-            'quantity' => $this->quantity,
-            'unit_price' => $this->unit_price,
-            'line_total' => $this->line_total,
+            'qty' => $this->qty,
+            'price' => $this->price,
+            'total' => $this->total,
             'warranty' => $this->warranty,
             'item_note' => $this->item_note,
             'sort_order' => $this->sort_order,
+            'reservation_expires_at' => $this->reservation_expires_at,
             'created_at' => $this->created_at,
         ];
 
@@ -103,11 +107,11 @@ class CIG_Invoice_Item_DTO {
             $errors[] = 'Product name is required';
         }
 
-        if ($this->quantity <= 0) {
+        if ($this->qty <= 0) {
             $errors[] = 'Quantity must be greater than 0';
         }
 
-        if ($this->unit_price < 0) {
+        if ($this->price < 0) {
             $errors[] = 'Unit price cannot be negative';
         }
 

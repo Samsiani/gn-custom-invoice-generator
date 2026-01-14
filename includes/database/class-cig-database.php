@@ -69,7 +69,7 @@ class CIG_Database {
         $table_invoices = $this->get_table_name('invoices');
         $sql_invoices = "CREATE TABLE IF NOT EXISTS `{$table_invoices}` (
             `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
-            `post_id` bigint(20) unsigned NOT NULL,
+            `old_post_id` bigint(20) unsigned NOT NULL,
             `invoice_number` varchar(50) NOT NULL,
             `buyer_name` varchar(255) DEFAULT NULL,
             `buyer_tax_id` varchar(100) DEFAULT NULL,
@@ -77,8 +77,8 @@ class CIG_Database {
             `buyer_phone` varchar(50) DEFAULT NULL,
             `buyer_email` varchar(100) DEFAULT NULL,
             `customer_id` bigint(20) unsigned DEFAULT NULL,
-            `invoice_status` varchar(20) DEFAULT 'standard',
-            `lifecycle_status` varchar(20) DEFAULT 'unfinished',
+            `type` varchar(20) DEFAULT 'standard',
+            `status` varchar(20) DEFAULT 'unfinished',
             `rs_uploaded` tinyint(1) DEFAULT 0,
             `subtotal` decimal(10,2) DEFAULT 0.00,
             `tax_amount` decimal(10,2) DEFAULT 0.00,
@@ -87,15 +87,15 @@ class CIG_Database {
             `paid_amount` decimal(10,2) DEFAULT 0.00,
             `balance` decimal(10,2) DEFAULT 0.00,
             `general_note` text DEFAULT NULL,
-            `created_by` bigint(20) unsigned DEFAULT NULL,
+            `author_id` bigint(20) unsigned DEFAULT NULL,
             `created_at` datetime NOT NULL,
             `updated_at` datetime NOT NULL,
             PRIMARY KEY (`id`),
             UNIQUE KEY `invoice_number` (`invoice_number`),
-            KEY `post_id` (`post_id`),
+            KEY `old_post_id` (`old_post_id`),
             KEY `customer_id` (`customer_id`),
-            KEY `invoice_status` (`invoice_status`),
-            KEY `created_by` (`created_by`),
+            KEY `type` (`type`),
+            KEY `author_id` (`author_id`),
             KEY `created_at` (`created_at`)
         ) ENGINE=InnoDB {$charset_collate};";
 
@@ -114,12 +114,13 @@ class CIG_Database {
             `product_id` bigint(20) unsigned NOT NULL,
             `product_name` varchar(255) NOT NULL,
             `product_sku` varchar(100) DEFAULT NULL,
-            `quantity` decimal(10,2) NOT NULL DEFAULT 1.00,
-            `unit_price` decimal(10,2) NOT NULL DEFAULT 0.00,
-            `line_total` decimal(10,2) NOT NULL DEFAULT 0.00,
+            `qty` decimal(10,2) NOT NULL DEFAULT 1.00,
+            `price` decimal(10,2) NOT NULL DEFAULT 0.00,
+            `total` decimal(10,2) NOT NULL DEFAULT 0.00,
             `warranty` varchar(20) DEFAULT NULL,
             `item_note` text DEFAULT NULL,
             `sort_order` int(11) DEFAULT 0,
+            `reservation_expires_at` datetime DEFAULT NULL,
             `created_at` datetime NOT NULL,
             PRIMARY KEY (`id`),
             KEY `invoice_id` (`invoice_id`),
@@ -138,16 +139,16 @@ class CIG_Database {
         $sql_payments = "CREATE TABLE IF NOT EXISTS `{$table_payments}` (
             `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
             `invoice_id` bigint(20) unsigned NOT NULL,
-            `payment_date` datetime NOT NULL,
+            `date` date NOT NULL,
             `payment_method` varchar(50) DEFAULT NULL,
             `amount` decimal(10,2) NOT NULL DEFAULT 0.00,
             `transaction_ref` varchar(100) DEFAULT NULL,
             `note` text DEFAULT NULL,
-            `created_by` bigint(20) unsigned DEFAULT NULL,
+            `user_id` bigint(20) unsigned DEFAULT NULL,
             `created_at` datetime NOT NULL,
             PRIMARY KEY (`id`),
             KEY `invoice_id` (`invoice_id`),
-            KEY `payment_date` (`payment_date`),
+            KEY `date` (`date`),
             KEY `payment_method` (`payment_method`)
         ) ENGINE=InnoDB {$charset_collate};";
 
@@ -356,9 +357,9 @@ class CIG_Database {
         if ($this->wpdb->get_var("SHOW TABLES LIKE '{$table_invoices}'") === $table_invoices) {
             // Add missing columns to invoices table
             $columns_to_add = [
-                'post_id' => [
-                    'column' => "ADD COLUMN `post_id` bigint(20) unsigned NOT NULL DEFAULT 0 AFTER `id`",
-                    'index' => "ADD KEY `post_id` (`post_id`)",
+                'old_post_id' => [
+                    'column' => "ADD COLUMN `old_post_id` bigint(20) unsigned NOT NULL DEFAULT 0 AFTER `id`",
+                    'index' => "ADD KEY `old_post_id` (`old_post_id`)",
                 ],
                 'buyer_name' => [
                     'column' => "ADD COLUMN `buyer_name` varchar(255) DEFAULT NULL AFTER `invoice_number`",
@@ -379,15 +380,15 @@ class CIG_Database {
                     'column' => "ADD COLUMN `customer_id` bigint(20) unsigned DEFAULT NULL AFTER `buyer_email`",
                     'index' => "ADD KEY `customer_id` (`customer_id`)",
                 ],
-                'invoice_status' => [
-                    'column' => "ADD COLUMN `invoice_status` varchar(20) DEFAULT 'standard' AFTER `customer_id`",
-                    'index' => "ADD KEY `invoice_status` (`invoice_status`)",
+                'type' => [
+                    'column' => "ADD COLUMN `type` varchar(20) DEFAULT 'standard' AFTER `customer_id`",
+                    'index' => "ADD KEY `type` (`type`)",
                 ],
-                'lifecycle_status' => [
-                    'column' => "ADD COLUMN `lifecycle_status` varchar(20) DEFAULT 'unfinished' AFTER `invoice_status`",
+                'status' => [
+                    'column' => "ADD COLUMN `status` varchar(20) DEFAULT 'unfinished' AFTER `type`",
                 ],
                 'rs_uploaded' => [
-                    'column' => "ADD COLUMN `rs_uploaded` tinyint(1) DEFAULT 0 AFTER `lifecycle_status`",
+                    'column' => "ADD COLUMN `rs_uploaded` tinyint(1) DEFAULT 0 AFTER `status`",
                 ],
                 'subtotal' => [
                     'column' => "ADD COLUMN `subtotal` decimal(10,2) DEFAULT 0.00 AFTER `rs_uploaded`",
@@ -410,12 +411,12 @@ class CIG_Database {
                 'general_note' => [
                     'column' => "ADD COLUMN `general_note` text DEFAULT NULL AFTER `balance`",
                 ],
-                'created_by' => [
-                    'column' => "ADD COLUMN `created_by` bigint(20) unsigned DEFAULT NULL AFTER `general_note`",
-                    'index' => "ADD KEY `created_by` (`created_by`)",
+                'author_id' => [
+                    'column' => "ADD COLUMN `author_id` bigint(20) unsigned DEFAULT NULL AFTER `general_note`",
+                    'index' => "ADD KEY `author_id` (`author_id`)",
                 ],
                 'created_at' => [
-                    'column' => "ADD COLUMN `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER `created_by`",
+                    'column' => "ADD COLUMN `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER `author_id`",
                     'index' => "ADD KEY `created_at` (`created_at`)",
                 ],
                 'updated_at' => [
@@ -455,17 +456,17 @@ class CIG_Database {
                 'product_sku' => [
                     'column' => "ADD COLUMN `product_sku` varchar(100) DEFAULT NULL AFTER `product_name`",
                 ],
-                'quantity' => [
-                    'column' => "ADD COLUMN `quantity` decimal(10,2) NOT NULL DEFAULT 1.00 AFTER `product_sku`",
+                'qty' => [
+                    'column' => "ADD COLUMN `qty` decimal(10,2) NOT NULL DEFAULT 1.00 AFTER `product_sku`",
                 ],
-                'unit_price' => [
-                    'column' => "ADD COLUMN `unit_price` decimal(10,2) NOT NULL DEFAULT 0.00 AFTER `quantity`",
+                'price' => [
+                    'column' => "ADD COLUMN `price` decimal(10,2) NOT NULL DEFAULT 0.00 AFTER `qty`",
                 ],
-                'line_total' => [
-                    'column' => "ADD COLUMN `line_total` decimal(10,2) NOT NULL DEFAULT 0.00 AFTER `unit_price`",
+                'total' => [
+                    'column' => "ADD COLUMN `total` decimal(10,2) NOT NULL DEFAULT 0.00 AFTER `price`",
                 ],
                 'warranty' => [
-                    'column' => "ADD COLUMN `warranty` varchar(20) DEFAULT NULL AFTER `line_total`",
+                    'column' => "ADD COLUMN `warranty` varchar(20) DEFAULT NULL AFTER `total`",
                 ],
                 'item_note' => [
                     'column' => "ADD COLUMN `item_note` text DEFAULT NULL AFTER `warranty`",
@@ -474,8 +475,11 @@ class CIG_Database {
                     'column' => "ADD COLUMN `sort_order` int(11) DEFAULT 0 AFTER `item_note`",
                     'index' => "ADD KEY `sort_order` (`sort_order`)",
                 ],
+                'reservation_expires_at' => [
+                    'column' => "ADD COLUMN `reservation_expires_at` datetime DEFAULT NULL AFTER `sort_order`",
+                ],
                 'created_at' => [
-                    'column' => "ADD COLUMN `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER `sort_order`",
+                    'column' => "ADD COLUMN `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER `reservation_expires_at`",
                 ],
             ];
             
@@ -500,12 +504,12 @@ class CIG_Database {
         $table_payments = $this->get_table_name('payments');
         if ($this->wpdb->get_var("SHOW TABLES LIKE '{$table_payments}'") === $table_payments) {
             $columns_to_add = [
-                'payment_date' => [
-                    'column' => "ADD COLUMN `payment_date` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER `invoice_id`",
-                    'index' => "ADD KEY `payment_date` (`payment_date`)",
+                'date' => [
+                    'column' => "ADD COLUMN `date` date NOT NULL DEFAULT (CURRENT_DATE) AFTER `invoice_id`",
+                    'index' => "ADD KEY `date` (`date`)",
                 ],
                 'payment_method' => [
-                    'column' => "ADD COLUMN `payment_method` varchar(50) DEFAULT NULL AFTER `payment_date`",
+                    'column' => "ADD COLUMN `payment_method` varchar(50) DEFAULT NULL AFTER `date`",
                     'index' => "ADD KEY `payment_method` (`payment_method`)",
                 ],
                 'amount' => [
@@ -517,11 +521,11 @@ class CIG_Database {
                 'note' => [
                     'column' => "ADD COLUMN `note` text DEFAULT NULL AFTER `transaction_ref`",
                 ],
-                'created_by' => [
-                    'column' => "ADD COLUMN `created_by` bigint(20) unsigned DEFAULT NULL AFTER `note`",
+                'user_id' => [
+                    'column' => "ADD COLUMN `user_id` bigint(20) unsigned DEFAULT NULL AFTER `note`",
                 ],
                 'created_at' => [
-                    'column' => "ADD COLUMN `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER `created_by`",
+                    'column' => "ADD COLUMN `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER `user_id`",
                 ],
             ];
             

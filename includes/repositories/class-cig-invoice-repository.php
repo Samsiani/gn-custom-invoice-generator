@@ -95,16 +95,20 @@ class CIG_Invoice_Repository extends Abstract_CIG_Repository {
         }
 
         $table = $this->get_table('invoices');
-        $query = $this->wpdb->prepare("SELECT * FROM `{$table}` WHERE `post_id` = %d LIMIT 1", $post_id);
+        $query = $this->wpdb->prepare("SELECT * FROM `{$table}` WHERE `old_post_id` = %d LIMIT 1", $post_id);
         $row = $this->wpdb->get_row($query, ARRAY_A);
 
         if (!$row) {
             // Try fallback to postmeta
-            return CIG_Invoice_DTO::from_postmeta($post_id);
+            $dto = CIG_Invoice_DTO::from_postmeta($post_id);
+            // Return null instead of causing fatal error if postmeta also returns null
+            return $dto;
         }
 
         $dto = CIG_Invoice_DTO::from_array($row);
-        $this->set_cache($cache_key, $row, 900);
+        if ($dto !== null) {
+            $this->set_cache($cache_key, $row, 900);
+        }
 
         return $dto;
     }
@@ -199,7 +203,7 @@ class CIG_Invoice_Repository extends Abstract_CIG_Repository {
         // Clear cache
         $this->delete_cache('cig_invoice_' . $invoice_id);
         $this->delete_cache('cig_invoice_num_' . md5($dto->invoice_number));
-        $this->delete_cache('cig_invoice_post_' . $dto->post_id);
+        $this->delete_cache('cig_invoice_post_' . $dto->old_post_id);
 
         $this->log_info('Invoice created', ['invoice_id' => $invoice_id, 'invoice_number' => $dto->invoice_number]);
 
@@ -230,8 +234,8 @@ class CIG_Invoice_Repository extends Abstract_CIG_Repository {
         $data = $dto->to_array(false);
         $data['updated_at'] = current_time('mysql');
         
-        // Remove post_id from update data - it's an immutable reference field
-        unset($data['post_id']);
+        // Remove old_post_id from update data - it's an immutable reference field
+        unset($data['old_post_id']);
 
         $result = $this->wpdb->update(
             $table,
@@ -283,7 +287,7 @@ class CIG_Invoice_Repository extends Abstract_CIG_Repository {
         if ($invoice) {
             $this->delete_cache('cig_invoice_' . $id);
             $this->delete_cache('cig_invoice_num_' . md5($invoice->invoice_number));
-            $this->delete_cache('cig_invoice_post_' . $invoice->post_id);
+            $this->delete_cache('cig_invoice_post_' . $invoice->old_post_id);
         }
 
         $this->log_info('Invoice deleted', ['invoice_id' => $id]);

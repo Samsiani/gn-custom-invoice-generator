@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
 class CIG_Invoice_DTO {
 
     public $id;
-    public $post_id;
+    public $old_post_id;  // Changed from post_id to match database
     public $invoice_number;
     public $buyer_name;
     public $buyer_tax_id;
@@ -22,8 +22,8 @@ class CIG_Invoice_DTO {
     public $buyer_phone;
     public $buyer_email;
     public $customer_id;
-    public $invoice_status;
-    public $lifecycle_status;
+    public $type;  // Changed from invoice_status to match database
+    public $status;  // Changed from lifecycle_status to match database
     public $rs_uploaded;
     public $subtotal;
     public $tax_amount;
@@ -32,7 +32,7 @@ class CIG_Invoice_DTO {
     public $paid_amount;
     public $balance;
     public $general_note;
-    public $created_by;
+    public $author_id;  // Changed from created_by to match database
     public $created_at;
     public $updated_at;
 
@@ -50,7 +50,8 @@ class CIG_Invoice_DTO {
         $dto = new self();
         
         $dto->id = isset($data['id']) ? (int)$data['id'] : null;
-        $dto->post_id = isset($data['post_id']) ? (int)$data['post_id'] : 0;
+        // Support both old and new column names for compatibility
+        $dto->old_post_id = isset($data['old_post_id']) ? (int)$data['old_post_id'] : (isset($data['post_id']) ? (int)$data['post_id'] : 0);
         $dto->invoice_number = $data['invoice_number'] ?? '';
         $dto->buyer_name = $data['buyer_name'] ?? '';
         $dto->buyer_tax_id = $data['buyer_tax_id'] ?? '';
@@ -58,8 +59,9 @@ class CIG_Invoice_DTO {
         $dto->buyer_phone = $data['buyer_phone'] ?? '';
         $dto->buyer_email = $data['buyer_email'] ?? '';
         $dto->customer_id = isset($data['customer_id']) ? (int)$data['customer_id'] : null;
-        $dto->invoice_status = $data['invoice_status'] ?? 'standard';
-        $dto->lifecycle_status = $data['lifecycle_status'] ?? 'unfinished';
+        // Support both old and new column names
+        $dto->type = $data['type'] ?? $data['invoice_status'] ?? 'standard';
+        $dto->status = $data['status'] ?? $data['lifecycle_status'] ?? 'unfinished';
         $dto->rs_uploaded = isset($data['rs_uploaded']) ? (bool)$data['rs_uploaded'] : false;
         $dto->subtotal = isset($data['subtotal']) ? (float)$data['subtotal'] : 0.00;
         $dto->tax_amount = isset($data['tax_amount']) ? (float)$data['tax_amount'] : 0.00;
@@ -68,7 +70,8 @@ class CIG_Invoice_DTO {
         $dto->paid_amount = isset($data['paid_amount']) ? (float)$data['paid_amount'] : 0.00;
         $dto->balance = isset($data['balance']) ? (float)$data['balance'] : 0.00;
         $dto->general_note = $data['general_note'] ?? '';
-        $dto->created_by = isset($data['created_by']) ? (int)$data['created_by'] : null;
+        // Support both old and new column names
+        $dto->author_id = isset($data['author_id']) ? (int)$data['author_id'] : (isset($data['created_by']) ? (int)$data['created_by'] : null);
         $dto->created_at = $data['created_at'] ?? current_time('mysql');
         $dto->updated_at = $data['updated_at'] ?? current_time('mysql');
         
@@ -88,7 +91,7 @@ class CIG_Invoice_DTO {
         }
 
         $dto = new self();
-        $dto->post_id = $post_id;
+        $dto->old_post_id = $post_id;
         $dto->invoice_number = get_post_meta($post_id, '_cig_invoice_number', true);
         $dto->buyer_name = get_post_meta($post_id, '_cig_buyer_name', true);
         $dto->buyer_tax_id = get_post_meta($post_id, '_cig_buyer_tax_id', true);
@@ -96,8 +99,8 @@ class CIG_Invoice_DTO {
         $dto->buyer_phone = get_post_meta($post_id, '_cig_buyer_phone', true);
         $dto->buyer_email = get_post_meta($post_id, '_cig_buyer_email', true);
         $dto->customer_id = (int)get_post_meta($post_id, '_cig_customer_id', true) ?: null;
-        $dto->invoice_status = get_post_meta($post_id, '_cig_invoice_status', true) ?: 'standard';
-        $dto->lifecycle_status = get_post_meta($post_id, '_cig_lifecycle_status', true) ?: 'unfinished';
+        $dto->type = get_post_meta($post_id, '_cig_invoice_status', true) ?: 'standard';
+        $dto->status = get_post_meta($post_id, '_cig_lifecycle_status', true) ?: 'unfinished';
         $dto->rs_uploaded = (bool)get_post_meta($post_id, '_cig_rs_uploaded', true);
         $dto->subtotal = (float)get_post_meta($post_id, '_cig_subtotal', true);
         $dto->tax_amount = (float)get_post_meta($post_id, '_cig_tax_amount', true);
@@ -106,7 +109,7 @@ class CIG_Invoice_DTO {
         $dto->paid_amount = (float)get_post_meta($post_id, '_cig_paid_amount', true);
         $dto->balance = (float)get_post_meta($post_id, '_cig_balance', true);
         $dto->general_note = get_post_meta($post_id, '_cig_general_note', true);
-        $dto->created_by = (int)$post->post_author ?: null;
+        $dto->author_id = (int)$post->post_author ?: null;
         $dto->created_at = $post->post_date;
         $dto->updated_at = $post->post_modified;
 
@@ -121,7 +124,7 @@ class CIG_Invoice_DTO {
      */
     public function to_array($include_id = false) {
         $data = [
-            'post_id' => $this->post_id,
+            'old_post_id' => $this->old_post_id,
             'invoice_number' => $this->invoice_number,
             'buyer_name' => $this->buyer_name,
             'buyer_tax_id' => $this->buyer_tax_id,
@@ -129,8 +132,8 @@ class CIG_Invoice_DTO {
             'buyer_phone' => $this->buyer_phone,
             'buyer_email' => $this->buyer_email,
             'customer_id' => $this->customer_id,
-            'invoice_status' => $this->invoice_status,
-            'lifecycle_status' => $this->lifecycle_status,
+            'type' => $this->type,
+            'status' => $this->status,
             'rs_uploaded' => $this->rs_uploaded ? 1 : 0,
             'subtotal' => $this->subtotal,
             'tax_amount' => $this->tax_amount,
@@ -139,7 +142,7 @@ class CIG_Invoice_DTO {
             'paid_amount' => $this->paid_amount,
             'balance' => $this->balance,
             'general_note' => $this->general_note,
-            'created_by' => $this->created_by,
+            'author_id' => $this->author_id,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];
@@ -175,18 +178,18 @@ class CIG_Invoice_DTO {
             $errors[] = 'Buyer phone is required';
         }
 
-        if ($this->post_id <= 0) {
+        if ($this->old_post_id <= 0) {
             $errors[] = 'Valid post ID is required';
         }
 
         // Validate status values
         $valid_statuses = ['standard', 'fictive', 'proforma'];
-        if (!in_array($this->invoice_status, $valid_statuses, true)) {
+        if (!in_array($this->type, $valid_statuses, true)) {
             $errors[] = 'Invalid invoice status';
         }
 
         $valid_lifecycle = ['unfinished', 'completed', 'cancelled', 'reserved'];
-        if (!in_array($this->lifecycle_status, $valid_lifecycle, true)) {
+        if (!in_array($this->status, $valid_lifecycle, true)) {
             $errors[] = 'Invalid lifecycle status';
         }
 

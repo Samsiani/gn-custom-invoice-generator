@@ -37,7 +37,7 @@ class CIG_Payment_Repository extends Abstract_CIG_Repository {
 
         $table = $this->get_table('payments');
         $query = $this->wpdb->prepare(
-            "SELECT * FROM `{$table}` WHERE `invoice_id` = %d ORDER BY `payment_date` DESC",
+            "SELECT * FROM `{$table}` WHERE `invoice_id` = %d ORDER BY `date` DESC",
             $invoice_id
         );
 
