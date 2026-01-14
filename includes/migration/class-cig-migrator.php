@@ -302,8 +302,8 @@ class CIG_Migrator {
      * @return bool True if migrated
      */
     public function is_migrated() {
-        $status = get_option(self::MIGRATION_STATUS_OPTION, 'pending');
-        return $status === 'completed';
+        $progress = $this->get_migration_progress();
+        return $progress['remaining'] === 0;
     }
 
     /**
