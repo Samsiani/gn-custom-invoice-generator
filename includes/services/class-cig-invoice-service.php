@@ -532,7 +532,7 @@ class CIG_Invoice_Service {
         
         // Verify post exists before updating
         $post_exists = $wpdb->get_var($wpdb->prepare(
-            "SELECT ID FROM {$wpdb->posts} WHERE ID = %d",
+            "SELECT 1 FROM {$wpdb->posts} WHERE ID = %d",
             $post_id
         ));
         
