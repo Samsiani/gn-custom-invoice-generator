@@ -525,8 +525,18 @@ class CIG_Invoice_Service {
             return false;
         }
         
-        // Validate date format
-        if (empty($date)) {
+        // Validate date format (MySQL datetime: YYYY-MM-DD HH:MM:SS)
+        if (empty($date) || !preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $date)) {
+            return false;
+        }
+        
+        // Verify post exists before updating
+        $post_exists = $wpdb->get_var($wpdb->prepare(
+            "SELECT ID FROM {$wpdb->posts} WHERE ID = %d",
+            $post_id
+        ));
+        
+        if (!$post_exists) {
             return false;
         }
         
