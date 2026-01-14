@@ -9,8 +9,27 @@
  * @since 5.0.0
  */
 
-// Load WordPress
-require_once(dirname(__FILE__) . '/../../../../../../wp-load.php');
+// Load WordPress - Use a more robust method to find wp-load.php
+$wp_load = dirname(__FILE__) . '/../../../../../../wp-load.php';
+
+// Alternative method if the first doesn't work
+if (!file_exists($wp_load)) {
+    // Try to find ABSPATH
+    $dir = dirname(__FILE__);
+    for ($i = 0; $i < 10; $i++) {
+        if (file_exists($dir . '/wp-load.php')) {
+            $wp_load = $dir . '/wp-load.php';
+            break;
+        }
+        $dir = dirname($dir);
+    }
+}
+
+if (file_exists($wp_load)) {
+    require_once($wp_load);
+} else {
+    die('Unable to locate WordPress. Please check the file path.');
+}
 
 // Security check
 if (!current_user_can('manage_options')) {

@@ -281,7 +281,9 @@ jQuery(document).ready(function($) {
                         $('.cig-log-content').append('<div class="log-error-detail"><strong>File:</strong> ' + response.data.error_file + ':' + response.data.error_line + '</div>\n');
                     }
                     if (response.data.trace) {
-                        $('.cig-log-content').append('<details style="margin-top: 10px;"><summary style="cursor: pointer;"><strong>Stack Trace</strong></summary><pre style="background: #f5f5f5; padding: 10px; overflow-x: auto; font-size: 11px;">' + response.data.trace + '</pre></details>\n');
+                        // Escape HTML in trace before displaying
+                        var escapedTrace = $('<div/>').text(response.data.trace).html();
+                        $('.cig-log-content').append('<details style="margin-top: 10px;"><summary style="cursor: pointer;"><strong>Stack Trace</strong></summary><pre style="background: #f5f5f5; padding: 10px; overflow-x: auto; font-size: 11px;">' + escapedTrace + '</pre></details>\n');
                     }
                     
                     $('.cig-migrate-btn').prop('disabled', false).text('<?php echo esc_js(__('Retry Migration', 'cig')); ?>');
@@ -310,7 +312,10 @@ jQuery(document).ready(function($) {
                 $('.cig-log-content').append('<div class="log-info"><strong>Post ID:</strong> ' + response.data.post_id + '</div>\n');
                 
                 if (response.data.dto_data) {
-                    $('.cig-log-content').append('<details style="margin-top: 10px;"><summary style="cursor: pointer;"><strong>Invoice Data</strong></summary><pre style="background: #f5f5f5; padding: 10px; overflow-x: auto; font-size: 11px;">' + JSON.stringify(response.data.dto_data, null, 2) + '</pre></details>\n');
+                    // Escape and format JSON data before displaying
+                    var jsonStr = JSON.stringify(response.data.dto_data, null, 2);
+                    var escapedJson = $('<div/>').text(jsonStr).html();
+                    $('.cig-log-content').append('<details style="margin-top: 10px;"><summary style="cursor: pointer;"><strong>Invoice Data</strong></summary><pre style="background: #f5f5f5; padding: 10px; overflow-x: auto; font-size: 11px;">' + escapedJson + '</pre></details>\n');
                 }
             } else {
                 $('.cig-log-content').append('<div class="log-error"><strong>Error:</strong> ' + response.data.message + '</div>\n');
@@ -327,7 +332,10 @@ jQuery(document).ready(function($) {
                 }
                 
                 if (response.data.dto_data) {
-                    $('.cig-log-content').append('<details style="margin-top: 10px;"><summary style="cursor: pointer;"><strong>Invoice Data (with issues)</strong></summary><pre style="background: #fff3cd; padding: 10px; overflow-x: auto; font-size: 11px;">' + JSON.stringify(response.data.dto_data, null, 2) + '</pre></details>\n');
+                    // Escape and format JSON data before displaying
+                    var jsonStr = JSON.stringify(response.data.dto_data, null, 2);
+                    var escapedJson = $('<div/>').text(jsonStr).html();
+                    $('.cig-log-content').append('<details style="margin-top: 10px;"><summary style="cursor: pointer;"><strong>Invoice Data (with issues)</strong></summary><pre style="background: #fff3cd; padding: 10px; overflow-x: auto; font-size: 11px;">' + escapedJson + '</pre></details>\n');
                 }
                 
                 if (response.data.error_type) {
@@ -337,7 +345,10 @@ jQuery(document).ready(function($) {
                     $('.cig-log-content').append('<div class="log-error-detail"><strong>File:</strong> ' + response.data.error_file + ':' + response.data.error_line + '</div>\n');
                 }
                 if (response.data.trace) {
-                    $('.cig-log-content').append('<details style="margin-top: 10px;"><summary style="cursor: pointer;"><strong>Stack Trace</strong></summary><pre style="background: #f5f5f5; padding: 10px; overflow-x: auto; font-size: 11px;">' + response.data.trace.join('\n') + '</pre></details>\n');
+                    // Escape HTML in trace array before displaying
+                    var traceText = response.data.trace.join('\n');
+                    var escapedTrace = $('<div/>').text(traceText).html();
+                    $('.cig-log-content').append('<details style="margin-top: 10px;"><summary style="cursor: pointer;"><strong>Stack Trace</strong></summary><pre style="background: #f5f5f5; padding: 10px; overflow-x: auto; font-size: 11px;">' + escapedTrace + '</pre></details>\n');
                 }
             }
             

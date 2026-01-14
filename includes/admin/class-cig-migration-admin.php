@@ -402,7 +402,7 @@ class CIG_Migration_Admin {
             $line_count = 0;
             $current_line = '';
             
-            // Read backwards
+            // Read backwards and collect lines in reverse order
             while ($position >= 0 && $line_count < $max_lines * 2) { // Read more in case of filtering
                 fseek($handle, $position, SEEK_SET);
                 $char = fgetc($handle);
@@ -415,7 +415,7 @@ class CIG_Migration_Admin {
                     if (trim($current_line) !== '') {
                         // Apply filter if specified
                         if ($filter === null || strpos($current_line, $filter) !== false) {
-                            array_unshift($lines, $current_line);
+                            $lines[] = $current_line; // Append instead of unshift
                             $line_count++;
                             
                             if ($line_count >= $max_lines) {
@@ -433,6 +433,9 @@ class CIG_Migration_Admin {
             }
             
             fclose($handle);
+            
+            // Reverse the array once at the end for better performance
+            $lines = array_reverse($lines);
         }
         
         return $lines;
