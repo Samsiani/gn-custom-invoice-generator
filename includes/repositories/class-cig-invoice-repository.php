@@ -329,6 +329,154 @@ class CIG_Invoice_Repository extends Abstract_CIG_Repository {
     }
 
     /**
+     * Get comprehensive statistics with single SQL query (optimized)
+     * Replaces N+1 query pattern in statistics endpoints
+     *
+     * @param array $filters Filter conditions (date_from, date_to, type, etc.)
+     * @return array Complete statistics data
+     */
+    public function get_comprehensive_statistics($filters = []) {
+        if (!$this->tables_ready() || !$this->database->tables_have_data()) {
+            return $this->get_statistics_postmeta($filters);
+        }
+
+        $table_invoices = $this->get_table('invoices');
+        $table_items = $this->get_table('items');
+        $table_payments = $this->get_table('payments');
+        $values = [];
+        
+        // Build invoice WHERE clause
+        $where_clause = $this->build_where_clause($filters, $values);
+
+        // Single comprehensive query for invoice stats
+        $sql_invoices = "SELECT 
+            COUNT(*) as total_invoices,
+            COALESCE(SUM(total_amount), 0) as total_revenue,
+            COALESCE(SUM(paid_amount), 0) as total_paid,
+            COALESCE(SUM(balance), 0) as total_balance,
+            COALESCE(AVG(total_amount), 0) as avg_invoice_amount,
+            SUM(CASE WHEN type = 'standard' THEN 1 ELSE 0 END) as standard_invoices,
+            SUM(CASE WHEN type = 'fictive' THEN 1 ELSE 0 END) as fictive_invoices,
+            SUM(CASE WHEN balance > 0.01 THEN 1 ELSE 0 END) as outstanding_invoices
+        FROM `{$table_invoices}` {$where_clause}";
+
+        if (!empty($values)) {
+            $query = $this->wpdb->prepare($sql_invoices, $values);
+        } else {
+            $query = $sql_invoices;
+        }
+
+        $invoice_stats = $this->wpdb->get_row($query, ARRAY_A);
+
+        // Get payment method breakdown with single query
+        $payment_sql = "SELECT 
+            p.payment_method,
+            COALESCE(SUM(p.amount), 0) as total_amount
+        FROM `{$table_payments}` p
+        INNER JOIN `{$table_invoices}` i ON p.invoice_id = i.id
+        {$where_clause}
+        GROUP BY p.payment_method";
+
+        if (!empty($values)) {
+            $payment_query = $this->wpdb->prepare($payment_sql, $values);
+        } else {
+            $payment_query = $payment_sql;
+        }
+
+        $payment_rows = $this->wpdb->get_results($payment_query, ARRAY_A);
+        
+        $payment_breakdown = [
+            'company_transfer' => 0,
+            'cash' => 0,
+            'consignment' => 0,
+            'credit' => 0,
+            'other' => 0,
+        ];
+        
+        foreach ($payment_rows as $row) {
+            $method = $row['payment_method'] ?? 'other';
+            if (isset($payment_breakdown[$method])) {
+                $payment_breakdown[$method] = (float)$row['total_amount'];
+            } else {
+                $payment_breakdown['other'] += (float)$row['total_amount'];
+            }
+        }
+
+        // Get item status breakdown with single query
+        // Build WHERE clause for items join
+        $items_values = [];
+        $items_where = $this->build_where_clause($filters, $items_values);
+        
+        $items_sql = "SELECT 
+            COALESCE(SUM(CASE WHEN it.warranty IS NOT NULL AND it.warranty != '' THEN it.qty ELSE 0 END), 0) as sold_count,
+            COALESCE(SUM(it.qty), 0) as total_items
+        FROM `{$table_items}` it
+        INNER JOIN `{$table_invoices}` i ON it.invoice_id = i.id
+        {$items_where}";
+
+        if (!empty($items_values)) {
+            $items_query = $this->wpdb->prepare($items_sql, $items_values);
+        } else {
+            $items_query = $items_sql;
+        }
+
+        $item_stats = $this->wpdb->get_row($items_query, ARRAY_A);
+
+        return [
+            'total_invoices' => (int)($invoice_stats['total_invoices'] ?? 0),
+            'total_revenue' => (float)($invoice_stats['total_revenue'] ?? 0),
+            'total_paid' => (float)($invoice_stats['total_paid'] ?? 0),
+            'total_outstanding' => max(0, (float)($invoice_stats['total_balance'] ?? 0)),
+            'avg_invoice_amount' => (float)($invoice_stats['avg_invoice_amount'] ?? 0),
+            'standard_invoices' => (int)($invoice_stats['standard_invoices'] ?? 0),
+            'fictive_invoices' => (int)($invoice_stats['fictive_invoices'] ?? 0),
+            'outstanding_invoices' => (int)($invoice_stats['outstanding_invoices'] ?? 0),
+            'total_company_transfer' => $payment_breakdown['company_transfer'],
+            'total_cash' => $payment_breakdown['cash'],
+            'total_consignment' => $payment_breakdown['consignment'],
+            'total_credit' => $payment_breakdown['credit'],
+            'total_other' => $payment_breakdown['other'],
+            'total_items' => (int)($item_stats['total_items'] ?? 0),
+        ];
+    }
+
+    /**
+     * Get user statistics with optimized single query
+     *
+     * @param array $filters Filter conditions
+     * @return array User statistics grouped by author
+     */
+    public function get_user_statistics($filters = []) {
+        if (!$this->tables_ready() || !$this->database->tables_have_data()) {
+            return [];
+        }
+
+        $table = $this->get_table('invoices');
+        $values = [];
+        
+        $where_clause = $this->build_where_clause($filters, $values);
+
+        $sql = "SELECT 
+            author_id,
+            COUNT(*) as invoice_count,
+            COALESCE(SUM(total_amount), 0) as total_revenue,
+            COALESCE(SUM(paid_amount), 0) as total_paid,
+            MAX(COALESCE(activation_date, created_at)) as last_invoice_date
+        FROM `{$table}` 
+        {$where_clause}
+        GROUP BY author_id
+        ORDER BY invoice_count DESC";
+
+        if (!empty($values)) {
+            $query = $this->wpdb->prepare($sql, $values);
+        } else {
+            $query = $sql;
+        }
+
+        return $this->wpdb->get_results($query, ARRAY_A);
+    }
+
+    /**
      * Fallback: Find invoice by invoice number using postmeta
      *
      * @param string $invoice_number Invoice number

@@ -273,6 +273,10 @@ final class CIG_Invoice_Generator {
         $database->create_tables();
         $database->maybe_migrate_schema();
 
+        // Initialize CIG capabilities
+        require_once CIG_INCLUDES_DIR . 'class-cig-security.php';
+        CIG_Security::init_capabilities();
+
         if (!wp_next_scheduled('cig_check_expired_reservations')) {
             wp_schedule_event(time(), 'hourly', 'cig_check_expired_reservations');
         }
