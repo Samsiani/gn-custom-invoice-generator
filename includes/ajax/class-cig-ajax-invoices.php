@@ -56,8 +56,24 @@ class CIG_Ajax_Invoices {
     private function force_update_invoice_date($post_id, $payment_date = null) {
         global $wpdb;
         
-        // Use payment date if provided, otherwise use current site date
-        $date_part = $payment_date ? sanitize_text_field($payment_date) : current_time('Y-m-d');
+        // Validate post_id exists and is an invoice
+        $post_id = absint($post_id);
+        if (!$post_id || get_post_type($post_id) !== 'invoice') {
+            return;
+        }
+        
+        // Validate and sanitize date format (Y-m-d)
+        $date_part = current_time('Y-m-d'); // Default to current site date
+        if ($payment_date) {
+            $payment_date = sanitize_text_field($payment_date);
+            // Validate date format matches Y-m-d
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $payment_date)) {
+                $parsed = date_parse($payment_date);
+                if ($parsed['error_count'] === 0 && checkdate($parsed['month'], $parsed['day'], $parsed['year'])) {
+                    $date_part = $payment_date;
+                }
+            }
+        }
         
         // Get current site time (using WordPress timezone settings)
         $time_part = current_time('H:i:s');
@@ -86,6 +102,8 @@ class CIG_Ajax_Invoices {
 
     /**
      * Purge all relevant caches including LiteSpeed Cache
+     * Note: Uses aggressive cache purging as required to solve the issue where
+     * LiteSpeed did not automatically detect changes made via admin-ajax.php
      *
      * @param int $post_id The invoice post ID (optional)
      */
@@ -104,31 +122,33 @@ class CIG_Ajax_Invoices {
             }
         }
         
-        // 3. LiteSpeed Cache - API method
-        if (class_exists('LiteSpeed_Cache_API')) {
-            if (method_exists('LiteSpeed_Cache_API', 'purge_all')) {
-                LiteSpeed_Cache_API::purge_all();
-            }
-        }
-        
-        // 4. LiteSpeed Cache - Action Hook method
-        if (has_action('litespeed_purge_all')) {
-            do_action('litespeed_purge_all');
-        }
-        
-        // 5. LiteSpeed Cache - HTTP Header method (for AJAX requests)
-        if (!headers_sent()) {
-            header('X-LiteSpeed-Purge: *');
-        }
-        
-        // 6. Clean post-specific cache if post_id provided
+        // 3. Clean post-specific cache first if post_id provided (targeted purge)
         if ($post_id) {
+            $post_id = absint($post_id);
             clean_post_cache($post_id);
             
             // Specific post purge for LiteSpeed
             if (has_action('litespeed_purge_post')) {
                 do_action('litespeed_purge_post', $post_id);
             }
+        }
+        
+        // 4. LiteSpeed Cache - API method (aggressive purge for AJAX compatibility)
+        if (class_exists('LiteSpeed_Cache_API')) {
+            if (method_exists('LiteSpeed_Cache_API', 'purge_all')) {
+                LiteSpeed_Cache_API::purge_all();
+            }
+        }
+        
+        // 5. LiteSpeed Cache - Action Hook method
+        if (has_action('litespeed_purge_all')) {
+            do_action('litespeed_purge_all');
+        }
+        
+        // 6. LiteSpeed Cache - HTTP Header method (for AJAX requests)
+        // Note: Aggressive purge is required as LiteSpeed doesn't auto-detect AJAX changes
+        if (!headers_sent()) {
+            header('X-LiteSpeed-Purge: *');
         }
     }
 
