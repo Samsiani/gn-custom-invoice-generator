@@ -24,6 +24,7 @@ class CIG_Invoice_Item_DTO {
     public $item_note;
     public $sort_order;
     public $reservation_expires_at;  // New field from database
+    public $status;  // Item status (sold/reserved)
     public $created_at;
 
     /**
@@ -48,6 +49,7 @@ class CIG_Invoice_Item_DTO {
         $dto->item_note = $data['item_note'] ?? $data['note'] ?? '';
         $dto->sort_order = isset($data['sort_order']) ? (int)$data['sort_order'] : 0;
         $dto->reservation_expires_at = $data['reservation_expires_at'] ?? null;
+        $dto->status = $data['status'] ?? 'sold';
         $dto->created_at = $data['created_at'] ?? current_time('mysql');
         
         // Calculate total if not provided (with epsilon for float comparison)
@@ -77,6 +79,7 @@ class CIG_Invoice_Item_DTO {
             'item_note' => $this->item_note,
             'sort_order' => $this->sort_order,
             'reservation_expires_at' => $this->reservation_expires_at,
+            'status' => $this->status,
             'created_at' => $this->created_at,
         ];
 
