@@ -56,13 +56,16 @@ class CIG_Invoice_Service {
     }
 
     /**
-     * Create new invoice
+     * Create new invoice with transaction support
      *
      * @param array $data Invoice data
      * @return int|false Invoice ID or false on failure
+     * @throws Exception On database errors (when not caught internally)
      */
-    public function create_invoice($data) {
-        // Extract buyer data
+    public function create_invoice(array $data): int|false {
+        global $wpdb;
+        
+        // Extract and validate input data
         $buyer = $data['buyer'] ?? [];
         $items = $data['items'] ?? [];
         $payment_history = $data['payment']['history'] ?? [];
@@ -72,79 +75,99 @@ class CIG_Invoice_Service {
         $totals = $this->calculate_totals($items);
         
         // Calculate paid amount from payment history
-        $paid_amount = 0;
-        foreach ($payment_history as $payment) {
-            $paid_amount += (float)($payment['amount'] ?? 0);
-        }
+        $paid_amount = array_reduce($payment_history, function(float $carry, array $payment): float {
+            return $carry + (float)($payment['amount'] ?? 0);
+        }, 0.0);
 
         // Determine invoice status based on payment
         $invoice_status = $paid_amount > 0 ? 'standard' : 'fictive';
         
-        // Track if invoice was created as Active (standard/proforma) from the beginning
-        // We use activation_date as a flag: NULL means either "created as Active" or "not yet activated"
-        // This distinction is important for the update logic
+        // activation_date is NULL for new invoices
         $activation_date = null;
         
-        // Create post first
-        $post_id = wp_insert_post([
-            'post_title' => sprintf(__('Invoice %s', 'cig'), $data['invoice_number'] ?? ''),
-            'post_type' => 'invoice',
-            'post_status' => 'publish',
-            'post_author' => get_current_user_id(),
-        ]);
-
-        if (!$post_id || is_wp_error($post_id)) {
-            return false;
-        }
-
-        // Sync customer data
-        $customer_id = $this->sync_customer_data($buyer);
-
-        // Create invoice DTO
-        $invoice_dto = CIG_Invoice_DTO::from_array([
-            'post_id' => $post_id,
-            'invoice_number' => $data['invoice_number'] ?? '',
-            'buyer_name' => $buyer['name'] ?? '',
-            'buyer_tax_id' => $buyer['tax_id'] ?? '',
-            'buyer_address' => $buyer['address'] ?? '',
-            'buyer_phone' => $buyer['phone'] ?? '',
-            'buyer_email' => $buyer['email'] ?? '',
-            'customer_id' => $customer_id,
-            'invoice_status' => $invoice_status,
-            'lifecycle_status' => 'unfinished',
-            'rs_uploaded' => false,
-            'subtotal' => $totals['subtotal'],
-            'tax_amount' => $totals['tax'],
-            'discount_amount' => $totals['discount'],
-            'total_amount' => $totals['total'],
-            'paid_amount' => $paid_amount,
-            'balance' => $totals['total'] - $paid_amount,
-            'general_note' => $general_note,
-            'created_by' => get_current_user_id(),
-            'created_at' => current_time('mysql'),
-            'updated_at' => current_time('mysql'),
-            'activation_date' => $activation_date,
-        ]);
-
-        // Insert into custom table
-        $invoice_id = $this->invoice_repo->create($invoice_dto);
+        // Start database transaction
+        $wpdb->query('START TRANSACTION');
         
-        if (!$invoice_id) {
-            // Rollback: delete post
-            wp_delete_post($post_id, true);
-            return false;
-        }
+        try {
+            // Create WordPress post first
+            $post_id = wp_insert_post([
+                'post_title' => sprintf(__('Invoice %s', 'cig'), $data['invoice_number'] ?? ''),
+                'post_type' => 'invoice',
+                'post_status' => 'publish',
+                'post_author' => get_current_user_id(),
+            ]);
 
-        // Insert items
-        if (!empty($items)) {
-            foreach ($items as &$item) {
-                $item['invoice_id'] = $invoice_id;
+            if (!$post_id || is_wp_error($post_id)) {
+                $wpdb->query('ROLLBACK');
+                $this->log_error('Failed to create WordPress post for invoice');
+                return false;
             }
-            $this->items_repo->bulk_insert($invoice_id, $items);
-        }
 
-        // Insert payments
-        if (!empty($payment_history)) {
+            // Sync customer data
+            $customer_id = $this->sync_customer_data($buyer);
+
+            // Create invoice DTO with strict typing
+            $invoice_dto = CIG_Invoice_DTO::from_array([
+                'post_id' => $post_id,
+                'invoice_number' => $data['invoice_number'] ?? '',
+                'buyer_name' => $buyer['name'] ?? '',
+                'buyer_tax_id' => $buyer['tax_id'] ?? '',
+                'buyer_address' => $buyer['address'] ?? '',
+                'buyer_phone' => $buyer['phone'] ?? '',
+                'buyer_email' => $buyer['email'] ?? '',
+                'customer_id' => $customer_id,
+                'invoice_status' => $invoice_status,
+                'lifecycle_status' => 'unfinished',
+                'rs_uploaded' => false,
+                'subtotal' => $totals['subtotal'],
+                'tax_amount' => $totals['tax'],
+                'discount_amount' => $totals['discount'],
+                'total_amount' => $totals['total'],
+                'paid_amount' => $paid_amount,
+                'balance' => $totals['total'] - $paid_amount,
+                'general_note' => $general_note,
+                'created_by' => get_current_user_id(),
+                'created_at' => current_time('mysql'),
+                'updated_at' => current_time('mysql'),
+                'activation_date' => $activation_date,
+            ]);
+
+            // Validate DTO
+            $validation_errors = $invoice_dto->validate();
+            if (!empty($validation_errors)) {
+                $wpdb->query('ROLLBACK');
+                wp_delete_post($post_id, true);
+                $this->log_error('Invoice DTO validation failed', ['errors' => $validation_errors]);
+                return false;
+            }
+
+            // Insert into custom table
+            $invoice_id = $this->invoice_repo->create($invoice_dto);
+            
+            if (!$invoice_id) {
+                $wpdb->query('ROLLBACK');
+                wp_delete_post($post_id, true);
+                $this->log_error('Failed to insert invoice into custom table');
+                return false;
+            }
+
+            // Insert items
+            if (!empty($items)) {
+                $items_to_insert = array_map(function(array $item) use ($invoice_id): array {
+                    $item['invoice_id'] = $invoice_id;
+                    return $item;
+                }, $items);
+                
+                $items_result = $this->items_repo->bulk_insert($invoice_id, $items_to_insert);
+                if (!$items_result) {
+                    $wpdb->query('ROLLBACK');
+                    wp_delete_post($post_id, true);
+                    $this->log_error('Failed to insert invoice items');
+                    return false;
+                }
+            }
+
+            // Insert payments
             foreach ($payment_history as $payment) {
                 $payment_dto = CIG_Payment_DTO::from_array([
                     'invoice_id' => $invoice_id,
@@ -154,14 +177,67 @@ class CIG_Invoice_Service {
                     'note' => $payment['comment'] ?? '',
                     'created_by' => $payment['user_id'] ?? get_current_user_id(),
                 ]);
-                $this->payment_repo->add_payment($payment_dto);
+                
+                $payment_result = $this->payment_repo->add_payment($payment_dto);
+                if (!$payment_result) {
+                    $this->log_error('Failed to insert payment record', ['payment' => $payment]);
+                    // Continue with other payments, don't fail entire transaction
+                }
             }
+
+            // Commit the transaction
+            $wpdb->query('COMMIT');
+
+            // Save to postmeta for backward compatibility (outside transaction)
+            $this->save_to_postmeta($post_id, $data, $invoice_status, $activation_date);
+
+            $this->log_info('Invoice created successfully', [
+                'invoice_id' => $invoice_id,
+                'post_id' => $post_id,
+                'invoice_number' => $data['invoice_number'] ?? ''
+            ]);
+
+            return $invoice_id;
+            
+        } catch (Exception $e) {
+            $wpdb->query('ROLLBACK');
+            $this->log_error('Invoice creation failed with exception', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return false;
+        } catch (Error $e) {
+            $wpdb->query('ROLLBACK');
+            $this->log_error('Invoice creation failed with fatal error', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return false;
         }
+    }
 
-        // Also save to postmeta for backward compatibility
-        $this->save_to_postmeta($post_id, $data, $invoice_status, $activation_date);
+    /**
+     * Log error message
+     *
+     * @param string $message Error message
+     * @param array $context Additional context
+     */
+    private function log_error(string $message, array $context = []): void {
+        if ($this->logger) {
+            $this->logger->error($message, $context);
+        }
+    }
 
-        return $invoice_id;
+    /**
+     * Log info message
+     *
+     * @param string $message Info message
+     * @param array $context Additional context
+     */
+    private function log_info(string $message, array $context = []): void {
+        if ($this->logger) {
+            $this->logger->info($message, $context);
+        }
     }
 
     /**
