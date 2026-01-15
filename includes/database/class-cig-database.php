@@ -128,11 +128,13 @@ class CIG_Database {
             `item_note` text DEFAULT NULL,
             `sort_order` int(11) DEFAULT 0,
             `reservation_expires_at` datetime DEFAULT NULL,
+            `status` varchar(20) DEFAULT 'sold',
             `created_at` datetime NOT NULL,
             PRIMARY KEY (`id`),
             KEY `invoice_id` (`invoice_id`),
             KEY `product_id` (`product_id`),
-            KEY `sort_order` (`sort_order`)
+            KEY `sort_order` (`sort_order`),
+            KEY `status` (`status`)
         ) ENGINE=InnoDB {$charset_collate};";
 
         dbDelta($sql_items);
@@ -489,8 +491,12 @@ class CIG_Database {
                 'reservation_expires_at' => [
                     'column' => "ADD COLUMN `reservation_expires_at` datetime DEFAULT NULL AFTER `sort_order`",
                 ],
+                'status' => [
+                    'column' => "ADD COLUMN `status` varchar(20) DEFAULT 'sold' AFTER `reservation_expires_at`",
+                    'index' => "ADD KEY `status` (`status`)",
+                ],
                 'created_at' => [
-                    'column' => "ADD COLUMN `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER `reservation_expires_at`",
+                    'column' => "ADD COLUMN `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER `status`",
                 ],
             ];
             

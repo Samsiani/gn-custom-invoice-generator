@@ -318,8 +318,38 @@ class CIG_Ajax_Invoices {
         // Prepare Payment Data for saving
         $payment_data = ['history' => $hist];
 
-        // Save NEW items and metadata
+        // Save NEW items and metadata (postmeta for backward compatibility)
         CIG_Invoice::save_meta($pid, $new_num, $buyer, $items, $payment_data);
+        
+        // --- DUAL STORAGE: Also save to custom tables via invoice service ---
+        if (function_exists('CIG') && isset(CIG()->invoice_service)) {
+            $service_data = [
+                'invoice_number' => $new_num,
+                'buyer' => $buyer,
+                'items' => $items,
+                'payment' => $payment_data,
+                'general_note' => $general_note,
+            ];
+            
+            if ($update) {
+                // Find the custom table invoice ID by post_id
+                if (isset(CIG()->invoice_repo)) {
+                    $existing = CIG()->invoice_repo->find_by_post_id($pid);
+                    if ($existing) {
+                        CIG()->invoice_service->update_invoice($existing->id, $service_data);
+                    }
+                }
+            } else {
+                // For new invoices, the service will create both WP post and custom table entry
+                // Since we already created the post above, we update the existing record
+                if (isset(CIG()->invoice_repo)) {
+                    $existing = CIG()->invoice_repo->find_by_post_id($pid);
+                    if ($existing) {
+                        CIG()->invoice_service->update_invoice($existing->id, $service_data);
+                    }
+                }
+            }
+        }
         
         // Update Stock
         $items_for_stock = ($st === 'fictive') ? [] : $items;

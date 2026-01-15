@@ -231,6 +231,7 @@ class CIG_Migrator {
                         'line_total' => ($item['qty'] ?? 1) * ($item['price'] ?? 0),
                         'warranty' => $item['warranty'] ?? null,
                         'item_note' => $item['note'] ?? '',
+                        'status' => $item['status'] ?? 'sold',
                     ];
                 }
                 
