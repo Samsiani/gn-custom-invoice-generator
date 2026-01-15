@@ -47,6 +47,92 @@ class CIG_Ajax_Invoices {
     }
 
     /**
+     * Force update invoice post_date using direct SQL
+     * Combines specified payment date with current site time
+     *
+     * @param int    $post_id      The invoice post ID
+     * @param string $payment_date Payment date in Y-m-d format (optional)
+     */
+    private function force_update_invoice_date($post_id, $payment_date = null) {
+        global $wpdb;
+        
+        // Use payment date if provided, otherwise use current site date
+        $date_part = $payment_date ? sanitize_text_field($payment_date) : current_time('Y-m-d');
+        
+        // Get current site time (using WordPress timezone settings)
+        $time_part = current_time('H:i:s');
+        
+        // Combine date and time
+        $new_datetime = $date_part . ' ' . $time_part;
+        
+        // Calculate GMT datetime
+        $new_datetime_gmt = get_gmt_from_date($new_datetime);
+        
+        // Update post_date directly via SQL
+        $wpdb->update(
+            $wpdb->posts,
+            [
+                'post_date'     => $new_datetime,
+                'post_date_gmt' => $new_datetime_gmt,
+            ],
+            ['ID' => $post_id],
+            ['%s', '%s'],
+            ['%d']
+        );
+        
+        // Clean post cache to reflect changes
+        clean_post_cache($post_id);
+    }
+
+    /**
+     * Purge all relevant caches including LiteSpeed Cache
+     *
+     * @param int $post_id The invoice post ID (optional)
+     */
+    private function purge_cache($post_id = null) {
+        // 1. Clear WordPress Object Cache
+        if (function_exists('wp_cache_flush')) {
+            wp_cache_flush();
+        }
+        
+        // 2. Clear internal CIG caches
+        if ($this->cache) {
+            $this->cache->delete('statistics_summary');
+            if ($post_id) {
+                $author_id = get_post_field('post_author', $post_id);
+                $this->cache->delete('user_invoices_' . $author_id);
+            }
+        }
+        
+        // 3. LiteSpeed Cache - API method
+        if (class_exists('LiteSpeed_Cache_API')) {
+            if (method_exists('LiteSpeed_Cache_API', 'purge_all')) {
+                LiteSpeed_Cache_API::purge_all();
+            }
+        }
+        
+        // 4. LiteSpeed Cache - Action Hook method
+        if (has_action('litespeed_purge_all')) {
+            do_action('litespeed_purge_all');
+        }
+        
+        // 5. LiteSpeed Cache - HTTP Header method (for AJAX requests)
+        if (!headers_sent()) {
+            header('X-LiteSpeed-Purge: *');
+        }
+        
+        // 6. Clean post-specific cache if post_id provided
+        if ($post_id) {
+            clean_post_cache($post_id);
+            
+            // Specific post purge for LiteSpeed
+            if (has_action('litespeed_purge_post')) {
+                do_action('litespeed_purge_post', $post_id);
+            }
+        }
+    }
+
+    /**
      * Helper to process payment history array
      */
     private function process_payment_history($raw_history) {
@@ -216,12 +302,23 @@ class CIG_Ajax_Invoices {
         $items_for_stock = ($st === 'fictive') ? [] : $items;
         $this->stock->update_invoice_reservations($pid, $old_items, $items_for_stock); 
         
-        // Clear caches
-        if ($this->cache) {
-            $this->cache->delete('statistics_summary');
-            $author_id = get_post_field('post_author', $pid);
-            $this->cache->delete('user_invoices_' . $author_id);
+        // Update invoice date when invoice is active (standard) with the most recent payment date
+        if ($st === 'standard' && !empty($hist)) {
+            // Get the most recent payment date from history
+            $latest_date = null;
+            foreach ($hist as $h) {
+                $date = $h['date'] ?? null;
+                if ($date && (!$latest_date || $date > $latest_date)) {
+                    $latest_date = $date;
+                }
+            }
+            if ($latest_date) {
+                $this->force_update_invoice_date($pid, $latest_date);
+            }
         }
+        
+        // Purge all caches including LiteSpeed
+        $this->purge_cache($pid);
 
         wp_send_json_success([
             'post_id'        => $pid, 
@@ -278,10 +375,11 @@ class CIG_Ajax_Invoices {
             // 5. Mark invoice as completed
             update_post_meta($id, '_cig_lifecycle_status', 'completed');
 
-            // Clear cache
-            if ($this->cache) {
-                $this->cache->delete('statistics_summary');
-            }
+            // 6. Force update invoice date with current site time
+            $this->force_update_invoice_date($id);
+            
+            // 7. Purge all caches including LiteSpeed
+            $this->purge_cache($id);
 
             wp_send_json_success(['message' => 'Invoice marked as sold successfully.']);
         } else {
@@ -315,19 +413,17 @@ class CIG_Ajax_Invoices {
         
         // 1. Update status in DB
         update_post_meta($id, '_cig_invoice_status', $nst);
-        
-        // 2. Clear Cache
-        if ($this->cache) {
-            $this->cache->delete('statistics_summary');
-            $author_id = get_post_field('post_author', $id);
-            $this->cache->delete('user_invoices_' . $author_id);
-        }
 
-        // 3. Update Reservations / Stock
+        // 2. Update Reservations / Stock
         $items_old = ($ost === 'fictive') ? [] : $items;
         $items_new = ($nst === 'fictive') ? [] : $items;
 
         $this->stock->update_invoice_reservations($id, $items_old, $items_new);
+        
+        // 3. Force update invoice date when becoming active (standard)
+        if ($nst === 'standard' && $ost === 'fictive') {
+            $this->force_update_invoice_date($id);
+        }
         
         // 4. Force post update timestamp
         wp_update_post([
@@ -335,6 +431,9 @@ class CIG_Ajax_Invoices {
             'post_modified' => current_time('mysql'),
             'post_modified_gmt' => current_time('mysql', 1)
         ]);
+        
+        // 5. Purge all caches including LiteSpeed
+        $this->purge_cache($id);
         
         wp_send_json_success();
     }
