@@ -14,6 +14,12 @@ if (!defined('ABSPATH')) {
 class CIG_Validator {
 
     /**
+     * Validation constants
+     */
+    const MIN_ITEM_QUANTITY = 0.01;
+    const MAX_DISPLAYED_ERRORS = 3;
+
+    /**
      * Validation rules for invoice payload
      * @var array
      */
@@ -140,11 +146,11 @@ class CIG_Validator {
                 'brand' => sanitize_text_field($item['brand'] ?? ''),
                 'desc' => sanitize_textarea_field($item['desc'] ?? ''),
                 'image' => esc_url_raw($item['image'] ?? ''),
-                'qty' => max(0.01, $this->sanitize_float($item['qty'] ?? 1)),
+                'qty' => max(self::MIN_ITEM_QUANTITY, $this->sanitize_float($item['qty'] ?? 1)),
                 'price' => max(0, $this->sanitize_float($item['price'] ?? 0)),
                 'total' => max(0, $this->sanitize_float($item['total'] ?? 0)),
                 'status' => $this->sanitize_item_status($item['status'] ?? 'none'),
-                'reservation_days' => $this->clamp_reservation_days($item['reservation_days'] ?? 0),
+                'reservation_days' => $this->sanitize_reservation_days($item['reservation_days'] ?? 0),
                 'warranty' => $this->sanitize_warranty($item['warranty'] ?? ''),
             ];
         }
@@ -205,6 +211,21 @@ class CIG_Validator {
         $valid = ['none', 'sold', 'reserved', 'canceled'];
         $status = sanitize_text_field($status);
         return in_array($status, $valid, true) ? $status : 'none';
+    }
+
+    /**
+     * Sanitize reservation days
+     *
+     * @param int|string $days Raw reservation days value
+     * @return int Valid reservation days (1 to CIG_MAX_RESERVATION_DAYS)
+     */
+    private function sanitize_reservation_days($days) {
+        $d = intval($days);
+        if ($d < 1) {
+            return 0; // No reservation
+        }
+        $max = defined('CIG_MAX_RESERVATION_DAYS') ? CIG_MAX_RESERVATION_DAYS : 90;
+        return min($d, $max);
     }
 
     /**

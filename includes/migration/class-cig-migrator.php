@@ -42,6 +42,7 @@ class CIG_Migrator {
      */
     const MIGRATION_STATUS_OPTION = 'cig_migration_status';
     const MIGRATION_PROGRESS_OPTION = 'cig_migration_progress';
+    const MAX_DISPLAYED_ERRORS = 3;
 
     /**
      * Constructor
@@ -145,9 +146,9 @@ class CIG_Migrator {
 
         $message = sprintf('Batch completed: %d migrated, %d errors', $migrated, $errors);
         if (!empty($error_details)) {
-            $message .= '. Errors: ' . implode('; ', array_slice($error_details, 0, 3));
-            if (count($error_details) > 3) {
-                $message .= sprintf(' (and %d more)', count($error_details) - 3);
+            $message .= '. Errors: ' . implode('; ', array_slice($error_details, 0, self::MAX_DISPLAYED_ERRORS));
+            if (count($error_details) > self::MAX_DISPLAYED_ERRORS) {
+                $message .= sprintf(' (and %d more)', count($error_details) - self::MAX_DISPLAYED_ERRORS);
             }
         }
 

@@ -168,6 +168,9 @@ class CIG_Invoice_Service {
             }
 
             // Insert payments
+            // Note: Payment failures are logged but don't cause transaction rollback
+            // because payment history is stored in postmeta as backup for backward compatibility
+            $payment_failures = 0;
             foreach ($payment_history as $payment) {
                 $payment_dto = CIG_Payment_DTO::from_array([
                     'invoice_id' => $invoice_id,
@@ -180,15 +183,26 @@ class CIG_Invoice_Service {
                 
                 $payment_result = $this->payment_repo->add_payment($payment_dto);
                 if (!$payment_result) {
+                    $payment_failures++;
                     $this->log_error('Failed to insert payment record', ['payment' => $payment]);
-                    // Continue with other payments, don't fail entire transaction
                 }
+            }
+            
+            // Log warning if some payments failed (but data is preserved in postmeta)
+            if ($payment_failures > 0) {
+                $this->log_error('Some payment records failed to insert into custom table', [
+                    'invoice_id' => $invoice_id,
+                    'total_payments' => count($payment_history),
+                    'failed_payments' => $payment_failures,
+                    'note' => 'Payment data is preserved in postmeta for backward compatibility'
+                ]);
             }
 
             // Commit the transaction
             $wpdb->query('COMMIT');
 
             // Save to postmeta for backward compatibility (outside transaction)
+            // This ensures payment data is always preserved even if custom table insert fails
             $this->save_to_postmeta($post_id, $data, $invoice_status, $activation_date);
 
             $this->log_info('Invoice created successfully', [
