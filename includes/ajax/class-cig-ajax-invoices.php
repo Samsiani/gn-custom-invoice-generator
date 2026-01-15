@@ -322,7 +322,7 @@ class CIG_Ajax_Invoices {
         CIG_Invoice::save_meta($pid, $new_num, $buyer, $items, $payment_data);
         
         // --- DUAL STORAGE: Also save to custom tables via invoice service ---
-        if (function_exists('CIG') && isset(CIG()->invoice_service)) {
+        if (function_exists('CIG') && isset(CIG()->invoice_service) && isset(CIG()->invoice_repo)) {
             $service_data = [
                 'invoice_number' => $new_num,
                 'buyer' => $buyer,
@@ -331,23 +331,10 @@ class CIG_Ajax_Invoices {
                 'general_note' => $general_note,
             ];
             
-            if ($update) {
-                // Find the custom table invoice ID by post_id
-                if (isset(CIG()->invoice_repo)) {
-                    $existing = CIG()->invoice_repo->find_by_post_id($pid);
-                    if ($existing) {
-                        CIG()->invoice_service->update_invoice($existing->id, $service_data);
-                    }
-                }
-            } else {
-                // For new invoices, the service will create both WP post and custom table entry
-                // Since we already created the post above, we update the existing record
-                if (isset(CIG()->invoice_repo)) {
-                    $existing = CIG()->invoice_repo->find_by_post_id($pid);
-                    if ($existing) {
-                        CIG()->invoice_service->update_invoice($existing->id, $service_data);
-                    }
-                }
+            // Find the custom table invoice ID by post_id and update
+            $existing = CIG()->invoice_repo->find_by_post_id($pid);
+            if ($existing) {
+                CIG()->invoice_service->update_invoice($existing->id, $service_data);
             }
         }
         

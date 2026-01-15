@@ -298,28 +298,30 @@ class CIG_Invoice_Service {
         
         // --- NEW LOGIC: Always sync to LATEST payment date if active ---
         if ($invoice_status === 'standard') {
+            $latest_payment_ts = null;
             $latest_payment_date = null;
             
-            // 1. Find latest payment date
+            // 1. Find latest payment date (using timestamp comparison for reliability)
             if (!empty($payment_history)) {
                 foreach ($payment_history as $ph) {
                     $p_date = $ph['date'] ?? '';
-                    if ($p_date && (!$latest_payment_date || $p_date > $latest_payment_date)) {
-                        $latest_payment_date = $p_date;
+                    if ($p_date) {
+                        $p_ts = strtotime($p_date);
+                        if ($p_ts !== false && ($latest_payment_ts === null || $p_ts > $latest_payment_ts)) {
+                            $latest_payment_ts = $p_ts;
+                            $latest_payment_date = $p_date;
+                        }
                     }
                 }
             }
 
             // 2. Update invoice date
-            if ($latest_payment_date) {
+            if ($latest_payment_ts !== null) {
                 $time_part = current_time('H:i:s');
-                $ts = strtotime($latest_payment_date);
-                if ($ts !== false) {
-                    $new_datetime = date('Y-m-d', $ts) . ' ' . $time_part;
-                    $created_at = $new_datetime;
-                    $activation_date = $new_datetime;
-                    $update_post_date = true;
-                }
+                $new_datetime = wp_date('Y-m-d', $latest_payment_ts) . ' ' . $time_part;
+                $created_at = $new_datetime;
+                $activation_date = $new_datetime;
+                $update_post_date = true;
             } 
             // Fallback
             elseif (empty($existing->activation_date)) {
