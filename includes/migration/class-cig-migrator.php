@@ -42,6 +42,7 @@ class CIG_Migrator {
      */
     const MIGRATION_STATUS_OPTION = 'cig_migration_status';
     const MIGRATION_PROGRESS_OPTION = 'cig_migration_progress';
+    const MAX_DISPLAYED_ERRORS = 3;
 
     /**
      * Constructor
@@ -61,6 +62,8 @@ class CIG_Migrator {
      * @return array Migration results
      */
     public function migrate_invoices_to_table($batch_size = 50) {
+        global $wpdb;
+        
         if (!$this->database->tables_exist()) {
             return [
                 'success' => false,
@@ -99,15 +102,41 @@ class CIG_Migrator {
 
         $migrated = 0;
         $errors = 0;
+        $error_details = [];
 
         foreach ($invoices as $post) {
-            $result = $this->migrate_single_invoice($post->ID);
-            if ($result) {
-                $migrated++;
-                // Mark as migrated
-                update_post_meta($post->ID, '_cig_migrated_v5', 1);
-            } else {
+            // Start transaction for each invoice to allow partial progress
+            $wpdb->query('START TRANSACTION');
+            
+            try {
+                $result = $this->migrate_single_invoice($post->ID);
+                
+                if ($result) {
+                    // Mark as migrated
+                    update_post_meta($post->ID, '_cig_migrated_v5', 1);
+                    $wpdb->query('COMMIT');
+                    $migrated++;
+                } else {
+                    $wpdb->query('ROLLBACK');
+                    $errors++;
+                    $error_details[] = sprintf('Invoice #%d: Migration returned false', $post->ID);
+                }
+            } catch (Exception $e) {
+                $wpdb->query('ROLLBACK');
                 $errors++;
+                $error_details[] = sprintf('Invoice #%d: %s', $post->ID, $e->getMessage());
+                $this->log_error('Migration exception', [
+                    'post_id' => $post->ID,
+                    'error' => $e->getMessage()
+                ]);
+            } catch (Error $e) {
+                $wpdb->query('ROLLBACK');
+                $errors++;
+                $error_details[] = sprintf('Invoice #%d: Fatal error - %s', $post->ID, $e->getMessage());
+                $this->log_error('Migration fatal error', [
+                    'post_id' => $post->ID,
+                    'error' => $e->getMessage()
+                ]);
             }
         }
 
@@ -115,11 +144,20 @@ class CIG_Migrator {
         $progress = $this->get_migration_progress();
         update_option(self::MIGRATION_PROGRESS_OPTION, $progress, false);
 
+        $message = sprintf('Batch completed: %d migrated, %d errors', $migrated, $errors);
+        if (!empty($error_details)) {
+            $message .= '. Errors: ' . implode('; ', array_slice($error_details, 0, self::MAX_DISPLAYED_ERRORS));
+            if (count($error_details) > self::MAX_DISPLAYED_ERRORS) {
+                $message .= sprintf(' (and %d more)', count($error_details) - self::MAX_DISPLAYED_ERRORS);
+            }
+        }
+
         return [
             'success' => true,
-            'message' => sprintf('Batch completed: %d migrated, %d errors', $migrated, $errors),
+            'message' => $message,
             'migrated' => $migrated,
             'errors' => $errors,
+            'error_details' => $error_details,
             'progress' => $progress,
             'completed' => false,
         ];

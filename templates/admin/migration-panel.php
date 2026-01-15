@@ -74,16 +74,50 @@ $health_status = CIG()->database->get_health_status();
                 <div class="notice notice-error">
                     <p><?php echo esc_html__('Custom tables are not created. Please deactivate and reactivate the plugin.', 'cig'); ?></p>
                 </div>
-            <?php elseif ($is_migrated): ?>
+            <?php elseif ($is_migrated && $progress['remaining'] === 0): ?>
                 <div class="notice notice-success">
                     <p><?php echo esc_html__('Migration completed! All invoices have been migrated to custom tables.', 'cig'); ?></p>
                 </div>
+                
+                <!-- Post-migration actions -->
+                <p style="margin-top: 15px;">
+                    <button type="button" class="button button-secondary cig-verify-btn">
+                        <?php echo esc_html__('Verify Data Integrity', 'cig'); ?>
+                    </button>
+                    <button type="button" class="button button-secondary cig-view-logs-btn" style="margin-left: 10px;">
+                        <?php echo esc_html__('View Migration Logs', 'cig'); ?>
+                    </button>
+                    <button type="button" class="button button-link-delete cig-rollback-btn" style="margin-left: 10px;">
+                        <?php echo esc_html__('Rollback Migration', 'cig'); ?>
+                    </button>
+                </p>
             <?php else: ?>
+                <?php 
+                // Show resume message if there's partial progress
+                $has_partial_progress = $progress['migrated'] > 0 && $progress['remaining'] > 0;
+                ?>
+                
+                <?php if ($has_partial_progress): ?>
+                    <div class="notice notice-warning inline" style="margin: 0 0 15px 0;">
+                        <p>
+                            <strong><?php echo esc_html__('Migration in progress', 'cig'); ?></strong><br>
+                            <?php 
+                            printf(
+                                esc_html__('%d of %d invoices migrated (%s%%). Click Resume to continue.', 'cig'),
+                                esc_html($progress['migrated']),
+                                esc_html($progress['total']),
+                                esc_html($progress['percentage'])
+                            );
+                            ?>
+                        </p>
+                    </div>
+                <?php endif; ?>
+                
                 <p><?php echo esc_html__('Click the button below to start migrating your invoice data from postmeta to custom database tables.', 'cig'); ?></p>
                 
                 <p>
                     <button type="button" class="button button-primary button-hero cig-migrate-btn">
-                        <?php echo esc_html__('Start Migration', 'cig'); ?>
+                        <?php echo $has_partial_progress ? esc_html__('Resume Migration', 'cig') : esc_html__('Start Migration', 'cig'); ?>
                     </button>
                     <button type="button" class="button button-secondary cig-test-single-btn" style="margin-left: 10px;">
                         <?php echo esc_html__('Test Single Invoice', 'cig'); ?>
@@ -91,6 +125,11 @@ $health_status = CIG()->database->get_health_status();
                     <button type="button" class="button button-secondary cig-view-logs-btn" style="margin-left: 10px;">
                         <?php echo esc_html__('View Migration Logs', 'cig'); ?>
                     </button>
+                    <?php if ($has_partial_progress): ?>
+                        <button type="button" class="button button-link-delete cig-rollback-btn" style="margin-left: 10px;">
+                            <?php echo esc_html__('Reset & Start Over', 'cig'); ?>
+                        </button>
+                    <?php endif; ?>
                 </p>
             <?php endif; ?>
             
@@ -406,6 +445,70 @@ jQuery(document).ready(function($) {
         }).fail(function(xhr, status, error) {
             $('.cig-log-content').append('<div class="log-error"><strong>AJAX Error:</strong> ' + status + ' - ' + error + '</div>\n');
             $('.cig-view-logs-btn').prop('disabled', false).text('<?php echo esc_js(__('View Migration Logs', 'cig')); ?>');
+        });
+    });
+    
+    // Verify migration integrity
+    $('.cig-verify-btn').on('click', function() {
+        $(this).prop('disabled', true).text('<?php echo esc_js(__('Verifying...', 'cig')); ?>');
+        $('.cig-migration-log').show();
+        $('.cig-log-content').html('<div class="log-info">Verifying data integrity...</div>\n');
+        
+        $.post(ajaxurl, {
+            action: 'cig_verify_migration',
+            nonce: '<?php echo wp_create_nonce('cig_migration'); ?>'
+        }, function(response) {
+            if (response.success) {
+                var data = response.data;
+                if (data.status === 'ok') {
+                    $('.cig-log-content').append('<div class="log-success"><strong>✓ Verification passed!</strong> All data integrity checks passed.</div>\n');
+                } else if (data.status === 'warning') {
+                    $('.cig-log-content').append('<div class="log-warning"><strong>⚠ Verification completed with warnings:</strong></div>\n');
+                    $.each(data.warnings || [], function(i, warning) {
+                        $('.cig-log-content').append('<div class="log-warning">  - ' + warning + '</div>\n');
+                    });
+                } else {
+                    $('.cig-log-content').append('<div class="log-error"><strong>✗ Verification failed:</strong></div>\n');
+                    $.each(data.errors || [], function(i, error) {
+                        $('.cig-log-content').append('<div class="log-error">  - ' + error + '</div>\n');
+                    });
+                }
+            } else {
+                $('.cig-log-content').append('<div class="log-error"><strong>Error:</strong> ' + (response.data.message || 'Verification failed') + '</div>\n');
+            }
+            
+            $('.cig-verify-btn').prop('disabled', false).text('<?php echo esc_js(__('Verify Data Integrity', 'cig')); ?>');
+        }).fail(function(xhr, status, error) {
+            $('.cig-log-content').append('<div class="log-error"><strong>AJAX Error:</strong> ' + status + ' - ' + error + '</div>\n');
+            $('.cig-verify-btn').prop('disabled', false).text('<?php echo esc_js(__('Verify Data Integrity', 'cig')); ?>');
+        });
+    });
+    
+    // Rollback migration
+    $('.cig-rollback-btn').on('click', function() {
+        if (!confirm('<?php echo esc_js(__('WARNING: This will delete all migrated data from custom tables. Postmeta data will be preserved. Are you sure?', 'cig')); ?>')) {
+            return;
+        }
+        
+        $(this).prop('disabled', true).text('<?php echo esc_js(__('Rolling back...', 'cig')); ?>');
+        $('.cig-migration-log').show();
+        $('.cig-log-content').html('<div class="log-warning">Rolling back migration...</div>\n');
+        
+        $.post(ajaxurl, {
+            action: 'cig_rollback_migration',
+            nonce: '<?php echo wp_create_nonce('cig_migration'); ?>'
+        }, function(response) {
+            if (response.success) {
+                $('.cig-log-content').append('<div class="log-success"><strong>✓ Rollback completed!</strong> ' + response.data.message + '</div>\n');
+                $('.cig-log-content').append('<div class="log-info">Page will reload in 2 seconds...</div>\n');
+                setTimeout(function() { location.reload(); }, 2000);
+            } else {
+                $('.cig-log-content').append('<div class="log-error"><strong>Error:</strong> ' + (response.data.message || 'Rollback failed') + '</div>\n');
+                $('.cig-rollback-btn').prop('disabled', false).text('<?php echo esc_js(__('Rollback Migration', 'cig')); ?>');
+            }
+        }).fail(function(xhr, status, error) {
+            $('.cig-log-content').append('<div class="log-error"><strong>AJAX Error:</strong> ' + status + ' - ' + error + '</div>\n');
+            $('.cig-rollback-btn').prop('disabled', false).text('<?php echo esc_js(__('Rollback Migration', 'cig')); ?>');
         });
     });
 });

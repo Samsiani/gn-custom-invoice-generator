@@ -5,6 +5,7 @@
  *
  * @package CIG
  * @since 5.0.0
+ * @updated 5.0.1 - Added PHP 7.4+ typed properties
  */
 
 if (!defined('ABSPATH')) {
@@ -13,29 +14,74 @@ if (!defined('ABSPATH')) {
 
 class CIG_Invoice_DTO {
 
-    public $id;
-    public $old_post_id;  // Changed from post_id to match database
-    public $invoice_number;
-    public $buyer_name;
-    public $buyer_tax_id;
-    public $buyer_address;
-    public $buyer_phone;
-    public $buyer_email;
-    public $customer_id;
-    public $type;  // Changed from invoice_status to match database
-    public $status;  // Changed from lifecycle_status to match database
-    public $rs_uploaded;
-    public $subtotal;
-    public $tax_amount;
-    public $discount_amount;
-    public $total_amount;
-    public $paid_amount;
-    public $balance;
-    public $general_note;
-    public $author_id;  // Changed from created_by to match database
-    public $created_at;
-    public $updated_at;
-    public $activation_date;
+    /** @var int|null */
+    public ?int $id = null;
+    
+    /** @var int Post ID reference for backward compatibility */
+    public int $old_post_id = 0;
+    
+    /** @var string Invoice number (required) */
+    public string $invoice_number = '';
+    
+    /** @var string Buyer/customer name */
+    public string $buyer_name = '';
+    
+    /** @var string Tax identification number */
+    public string $buyer_tax_id = '';
+    
+    /** @var string Buyer address */
+    public string $buyer_address = '';
+    
+    /** @var string Buyer phone number */
+    public string $buyer_phone = '';
+    
+    /** @var string Buyer email address */
+    public string $buyer_email = '';
+    
+    /** @var int|null Customer ID reference */
+    public ?int $customer_id = null;
+    
+    /** @var string Invoice type (standard, fictive, proforma) */
+    public string $type = 'standard';
+    
+    /** @var string Lifecycle status (unfinished, completed, cancelled, reserved) */
+    public string $status = 'unfinished';
+    
+    /** @var bool RS (Revenue Service) upload status */
+    public bool $rs_uploaded = false;
+    
+    /** @var float Subtotal before tax and discount */
+    public float $subtotal = 0.00;
+    
+    /** @var float Tax amount */
+    public float $tax_amount = 0.00;
+    
+    /** @var float Discount amount */
+    public float $discount_amount = 0.00;
+    
+    /** @var float Total invoice amount */
+    public float $total_amount = 0.00;
+    
+    /** @var float Amount paid */
+    public float $paid_amount = 0.00;
+    
+    /** @var float Remaining balance */
+    public float $balance = 0.00;
+    
+    /** @var string General notes */
+    public string $general_note = '';
+    
+    /** @var int|null Author/creator user ID */
+    public ?int $author_id = null;
+    
+    /** @var string Creation timestamp (MySQL datetime) */
+    public string $created_at = '';
+    
+    /** @var string Last update timestamp (MySQL datetime) */
+    public string $updated_at = '';
+    
+    /** @var string|null Activation date (when invoice became active) */
+    public ?string $activation_date = null;
 
     /**
      * Create DTO from array
@@ -43,7 +89,7 @@ class CIG_Invoice_DTO {
      * @param array|null $data Raw data array
      * @return CIG_Invoice_DTO|null
      */
-    public static function from_array($data = null) {
+    public static function from_array($data = null): ?CIG_Invoice_DTO {
         if ($data === null || !is_array($data)) {
             return null;
         }

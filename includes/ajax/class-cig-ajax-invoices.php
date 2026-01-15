@@ -198,28 +198,31 @@ class CIG_Ajax_Invoices {
             wp_send_json_error(['message' => 'Invalid data format']);
         }
         
-        // Security Check for Completed Invoices
+        // Security Check for Completed Invoices using security helper
         if ($update) {
             $id = intval($d['invoice_id'] ?? 0);
-            $current_lifecycle = get_post_meta($id, '_cig_lifecycle_status', true);
-            if ($current_lifecycle === 'completed' && !current_user_can('administrator')) {
+            if (!$this->security->can_edit_invoice($id)) {
                 wp_send_json_error(['message' => 'დასრულებული ინვოისის რედაქტირება აკრძალულია.'], 403);
             }
         }
 
-        // Validation
-        $buyer = $d['buyer'] ?? [];
-        if (empty($buyer['name']) || empty($buyer['tax_id']) || empty($buyer['phone'])) {
-            wp_send_json_error(['message' => 'შეავსეთ მყიდველის სახელი, ს/კ და ტელეფონი.'], 400);
-        }
-
-        $num = sanitize_text_field($d['invoice_number'] ?? '');
+        // Use centralized validation
+        $validation = $this->validator->validate_invoice_request($d);
         
-        // NEW: General Note
-        $general_note = sanitize_textarea_field($d['general_note'] ?? '');
+        if (!$validation['valid']) {
+            wp_send_json_error([
+                'message' => implode(', ', $validation['errors']),
+                'validation_errors' => $validation['errors']
+            ], 400);
+        }
+        
+        // Use sanitized data from validator
+        $sanitized = $validation['data'];
+        $num = $sanitized['invoice_number'];
+        $general_note = $sanitized['general_note'];
         
         // 1. Determine Status based on Payment
-        $hist = $this->process_payment_history($d['payment']['history'] ?? []);
+        $hist = $sanitized['payment']['history'];
         $paid = 0; 
         foreach ($hist as $h) {
             $paid += floatval($h['amount'] ?? 0);
@@ -229,9 +232,7 @@ class CIG_Ajax_Invoices {
         $st = ($paid > 0) ? 'standard' : 'fictive';
 
         // 2. Process Items & Enforce Item Statuses
-        $items = array_filter((array)($d['items'] ?? []), function($r) { 
-            return !empty($r['name']); 
-        });
+        $items = $sanitized['items'];
 
         if (empty($items)) {
             wp_send_json_error(['message' => 'დაამატეთ პროდუქტები'], 400);
@@ -251,12 +252,15 @@ class CIG_Ajax_Invoices {
             }
             $processed_items[] = $item;
         }
-        $items = $processed_items; 
+        $items = $processed_items;
+        
+        // Use sanitized buyer data
+        $buyer = $sanitized['buyer'];
         
         $pid = 0;
 
         if ($update) {
-            $id = intval($d['invoice_id']);
+            $id = intval($sanitized['invoice_id'] ?? 0);
             if ($st === 'standard') { 
                 $err = $this->stock->validate_stock($items, $id); 
                 if ($err) {
@@ -312,11 +316,10 @@ class CIG_Ajax_Invoices {
         }
         
         // Prepare Payment Data for saving
-        $payment_data = (array)($d['payment'] ?? []);
-        $payment_data['history'] = $hist;
+        $payment_data = ['history' => $hist];
 
         // Save NEW items and metadata
-        CIG_Invoice::save_meta($pid, $new_num, (array)($d['buyer'] ?? []), $items, $payment_data);
+        CIG_Invoice::save_meta($pid, $new_num, $buyer, $items, $payment_data);
         
         // Update Stock
         $items_for_stock = ($st === 'fictive') ? [] : $items;

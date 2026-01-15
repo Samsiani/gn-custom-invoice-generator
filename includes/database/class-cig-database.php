@@ -98,7 +98,12 @@ class CIG_Database {
             KEY `type` (`type`),
             KEY `author_id` (`author_id`),
             KEY `created_at` (`created_at`),
-            KEY `activation_date` (`activation_date`)
+            KEY `activation_date` (`activation_date`),
+            KEY `idx_type_created` (`type`, `created_at`),
+            KEY `idx_type_activation` (`type`, `activation_date`),
+            KEY `idx_status_type` (`status`, `type`),
+            KEY `idx_author_type_created` (`author_id`, `type`, `created_at`),
+            KEY `idx_customer_type` (`customer_id`, `type`)
         ) ENGINE=InnoDB {$charset_collate};";
 
         dbDelta($sql_invoices);
